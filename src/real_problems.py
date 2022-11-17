@@ -657,6 +657,56 @@ def problem_setup(problem_str, noisy=False, **tkwargs):
     return X_dim, Y_dim, problem, util_type, get_util, Y_bounds, probit_noise
 
 
+class AugmentedProblem(MultiObjectiveTestProblem):
+    def __init__(
+        self, problem, noise, augmented_dim=None, duplicate=False, n_duplicates=None
+    ):
+
+        self._bounds = problem.bounds
+        self._ref_point = problem._ref_point
+
+        super().__init__()
+        self.base_problem = problem
+        self.base_outcome_dim = problem.num_objectives
+        self.augmented_dim = augmented_dim
+        self.noise = noise
+        self.bounds = problem.bounds
+        self.duplicate = duplicate
+        self.n_duplicates = n_duplicates
+
+    def evaluate_true(self, X):
+        if not self.duplicate:
+            res = torch.cat(
+                (
+                    self.base_problem.evaluate_true(X),
+                    torch.randn(
+                        (X.shape[0], int(self.augmented_dim - self.base_outcome_dim))
+                    )
+                    * self.noise,
+                ),
+                dim=1,
+            )
+        else:
+            base_outcome = self.base_problem.evaluate_true(X)
+            noise_added = (
+                torch.randn(
+                    (
+                        base_outcome.shape[0],
+                        base_outcome.shape[1] * (self.n_duplicates - 1),
+                    )
+                )
+                * self.noise
+            )
+            noise_added = torch.cat(
+                (torch.zeros_like(base_outcome), noise_added), dim=1
+            )
+
+            base_outcome_repeated = base_outcome.repeat(1, self.n_duplicates)
+            res = base_outcome_repeated + noise_added
+
+        return res
+
+
 def problem_setup_augmented(problem_str, augmented_dims_noise, noisy=False, **tkwargs):
     """example problem_str:
     "vehiclesafety_5d3d_kumaraswamyproduct"

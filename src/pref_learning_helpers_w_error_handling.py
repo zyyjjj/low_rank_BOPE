@@ -3,7 +3,7 @@ from typing import Dict, Optional
 import gpytorch
 
 import torch
-from ae.pca.pref_learning_helpers import (
+from pref_learning_helpers import (
     check_pref_model_fit,
     fit_pref_model,
     gen_comps,
