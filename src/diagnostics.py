@@ -2,8 +2,11 @@ import torch
 from typing import Dict, Optional
 
 import gpytorch
+import sys
+sys.path.append('..')
 
-from pref_learning_helpers import (
+
+from low_rank_BOPE.src.pref_learning_helpers import (
     check_pref_model_fit,
     fit_pref_model,
     gen_comps,

@@ -8,6 +8,8 @@ from gpytorch import ExactMarginalLogLikelihood
 from gpytorch.kernels import Kernel, LCMKernel, MaternKernel, RBFKernel, ScaleKernel
 from gpytorch.likelihoods import Likelihood
 from gpytorch.models import ExactGP
+from botorch.models.transforms.outcome import OutcomeTransform
+from botorch.models.transforms.input import InputTransform
 
 # LCM model class
 class MultitaskGPModel(GPyTorchModel, ExactGP):

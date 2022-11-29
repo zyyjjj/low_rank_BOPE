@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import copy
 import random
 import time
@@ -6,9 +5,12 @@ from typing import Any, Dict, List, NamedTuple
 import gpytorch
 import numpy as np
 import torch
+import sys
+sys.path.append('..')
 
-from low-rank-BOPE.src.lunar_lander import LunarLander
-from low-rank-BOPE.src.pref_learning_helpers import (
+
+from src.lunar_lander import LunarLander
+from low_rank_BOPE.src.pref_learning_helpers import (
     check_outcome_model_fit,
     check_pref_model_fit,
     find_max_posterior_mean,
@@ -18,7 +20,7 @@ from low-rank-BOPE.src.pref_learning_helpers import (
     generate_random_exp_data,
     generate_random_pref_data,
 )
-from low-rank-BOPE.src.transforms import (
+from low_rank_BOPE.src.transforms import (
     generate_random_projection,
     InputCenter,
     LinearProjectionInputTransform,
@@ -37,11 +39,12 @@ from botorch.models.transforms.input import (
 )
 
 from botorch.models.transforms.outcome import ChainedOutcomeTransform, Standardize
-from botorch.sampling.normal import SobolQMCNormalSampler
+# from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.sampling.samplers import SobolQMCNormalSampler
 from botorch.test_functions.base import MultiObjectiveTestProblem
 
-from low-rank-BOPE.src.models import make_modified_kernel, MultitaskGPModel
-from low-rank-BOPE.src.diagnostics import (
+from low_rank_BOPE.src.models import make_modified_kernel, MultitaskGPModel
+from low_rank_BOPE.src.diagnostics import (
     empirical_max_outcome_error,
     empirical_max_util_error,
     mc_max_outcome_error,
