@@ -45,7 +45,7 @@ from botorch.models.transforms.input import (
 )
 from botorch.models.transforms.outcome import ChainedOutcomeTransform, Standardize
 from botorch.optim.optimize import optimize_acqf
-from botorch.sampling.samplers import SobolQMCNormalSampler
+from botorch.sampling.normal import SobolQMCNormalSampler
 from low-rank-BOPE.src.diagnostics import (
     empirical_max_outcome_error,
     empirical_max_util_error,

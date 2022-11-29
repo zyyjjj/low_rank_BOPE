@@ -29,7 +29,7 @@ from gpytorch.priors import SmoothedBoxPrior
 from gpytorch.priors.torch_priors import GammaPrior
 from torch import Tensor
 # TODO: remove unused imports
-
+# TODO: these functions here don't incorporate the changes in 11/17 diff
 
 def run_pref_learn(
     outcome_model,

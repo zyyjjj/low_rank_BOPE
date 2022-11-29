@@ -3,33 +3,20 @@ import copy
 import random
 import time
 from typing import Any, Dict, List, NamedTuple
-
-import fblearner.flow.api as flow
 import gpytorch
 import numpy as np
 import torch
+
+from low-rank-BOPE.src.lunar_lander import LunarLander
 from low-rank-BOPE.src.pref_learning_helpers import (
     check_outcome_model_fit,
     check_pref_model_fit,
-    find_max_posterior_mean, # TODO: later see if we want the error-handled version
+    find_max_posterior_mean,
     fit_outcome_model,
-    fit_pref_model, # TODO: later see if we want the error-handled version
+    fit_pref_model,
     gen_exp_cand,
     generate_random_exp_data,
     generate_random_pref_data,
-)
-from low-rank-BOPE.src.real_problems import (
-    AdaptedOSY,
-    CarCabDesign,
-    DTLZ2,
-    LinearUtil,
-    NegativeVehicleSafety,
-    NegDist,
-    OSYSigmoidConstraintsUtil,
-    PiecewiseLinear,
-    probit_noise_dict,
-    AugmentedProblem,
-    problem_setup_augmented
 )
 from low-rank-BOPE.src.transforms import (
     generate_random_projection,
@@ -53,24 +40,26 @@ from botorch.models.transforms.outcome import ChainedOutcomeTransform, Standardi
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.test_functions.base import MultiObjectiveTestProblem
 
+from low-rank-BOPE.src.models import make_modified_kernel, MultitaskGPModel
 from low-rank-BOPE.src.diagnostics import (
     empirical_max_outcome_error,
     empirical_max_util_error,
     mc_max_outcome_error,
     mc_max_util_error,
 )
-from low-rank-BOPE.src.models import make_modified_kernel, MultitaskGPModel
+
 from gpytorch.kernels import LCMKernel, MaternKernel
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
+from gpytorch.priors import GammaPrior
+from gpytorch.priors.lkj_prior import LKJCovariancePrior
 
-N_BOPE_REPS = 30
+N_BOPE_REPS = 10
 PCA_VAR_THRESHOLD = 0.95
-AUGMENTED_DIMS_NOISE = 0.01
+AUGMENTED_DIMS_NOISE = 0.1
 MIN_STD = 100000
 N_TEST = 1000
 
 tkwargs = {"dtype": torch.double}
-
 
 # class for saving experiment data
 class OneRun(NamedTuple):
@@ -78,50 +67,54 @@ class OneRun(NamedTuple):
     within_session_results: List[Dict[str, Any]]
 
 
-# problem_setup_names = [
-#     "vehiclesafety_5d3d_piecewiselinear_20d",
-#     "carcabdesign_7d9d_piecewiselinear_20d",
-#     "carcabdesign_7d9d_linear_20d",
-# ]
-
-problem_setup_names = [
-    "vehiclesafety_5d3d_piecewiselinear_3c",
-    "carcabdesign_7d9d_piecewiselinear_3c",
-    "carcabdesign_7d9d_linear_3c",
-    # "osy_6d8d_piecewiselinear_3c",
-]
-
 BASE_CONFIG = {
     "initial_experimentation_batch": 16,
     "n_check_post_mean": 13,
     "every_n_comps": 3,
 }
 
+INPUT_DIM = 12
+NUM_ENVS = [50]  # this is the number of scenarios, so number of outcomes
+MIN_REWARD = 200
+SIGMOID_COEFF = 10
+
+# design sigmoid utility function reflecting distance from constraint
+# torch.sigmoid( coeff * (outcome - MIN_REWARD) ),
+# where coeff is a positive number; the larger coeff, the steeper the sigmoid
+
+class Sigmoid(torch.nn.Module):
+    def __init__(self, scale_coeff, threshold):
+        super().__init__()
+        self.scale_coeff = scale_coeff
+        self.threshold = threshold
+
+    def forward(self, Y, X=None):
+        if len(Y.shape) == 1:
+            Y = Y.unsqueeze(0)
+
+        return torch.sigmoid(self.scale_coeff * (Y - self.threshold))
+
+sigmoid_util_func = Sigmoid(SIGMOID_COEFF, MIN_REWARD)
 
 # workflow
-@flow.registered(owners=["oncall+ae_experiments"])
-@flow.typed()
 def main(
-    # test_problems: Dict[str, Tuple[Any]] = test_problems,
-    problem_setup_names: List[str] = problem_setup_names,
+    num_envs_list: List[int] = [50],
     n_trials: int = N_BOPE_REPS,
 ) -> Dict[str, List[OneRun]]:
 
     all_results = {}
 
-    for problem_setup_name in problem_setup_names:
+    for num_envs in num_envs_list:
 
-        input_dim, outcome_dim, problem, _, util_func, _, _ = problem_setup_augmented(
-            problem_setup_name, augmented_dims_noise=AUGMENTED_DIMS_NOISE, **tkwargs
-        )
         config = copy.deepcopy(BASE_CONFIG)
-        config["input_dim"] = input_dim
-        config["outcome_dim"] = outcome_dim
+        config["input_dim"] = INPUT_DIM
+        config["outcome_dim"] = num_envs
+        problem = LunarLander(num_envs=num_envs)
 
-        all_results[problem_setup_name] = [
+        all_results[num_envs] = [
             run_one_trial(
                 problem=problem,
-                util_func=util_func,
+                util_func=sigmoid_util_func,
                 trial_idx=i,
                 config=config,
                 **tkwargs,
@@ -132,9 +125,6 @@ def main(
     return all_results
 
 
-# each trial is one BOPE run for a particular problem, utility function
-@flow.flow_async()
-@flow.typed()
 def run_one_trial(
     problem: torch.nn.Module,
     util_func: torch.nn.Module,
@@ -169,6 +159,9 @@ def run_one_trial(
             "covar_module": make_modified_kernel(ard_num_dims=config["outcome_dim"]),
         },
         "pca": {
+            # TODO: if we want to do the transforms explicitly
+            # use Qing's code for map-saas,
+            # but also don't forget to center the outcomes
             "outcome_tf": ChainedOutcomeTransform(
                 **{
                     "standardize": Standardize(
@@ -182,12 +175,17 @@ def run_one_trial(
                 }
             ),
         },
-        "mtgp": {
+        # "mtgp": {
+        #     "outcome_tf": Standardize(config["outcome_dim"]),
+        #     "input_tf": Normalize(config["outcome_dim"]),
+        #     "covar_module": make_modified_kernel(ard_num_dims=config["outcome_dim"]),
+        # },
+        "lmc1": {
             "outcome_tf": Standardize(config["outcome_dim"]),
             "input_tf": Normalize(config["outcome_dim"]),
             "covar_module": make_modified_kernel(ard_num_dims=config["outcome_dim"]),
         },
-        "lmc": {
+        "lmc2": {
             "outcome_tf": Standardize(config["outcome_dim"]),
             "input_tf": Normalize(config["outcome_dim"]),
             "covar_module": make_modified_kernel(ard_num_dims=config["outcome_dim"]),
@@ -199,7 +197,8 @@ def run_one_trial(
         "pca",
         "random_linear_proj",
         "random_subset",
-        "lmc"
+        "lmc1",
+        "lmc2"
         # "mtgp",
     ]:
 
@@ -207,6 +206,7 @@ def run_one_trial(
 
         lin_proj_latent_dim = 1  # define variable, placeholder
 
+        time_start = time.time()  # log outcome model fitting time
         if method == "mtgp":
             outcome_model = KroneckerMultiTaskGP(
                 X,
@@ -221,12 +221,28 @@ def run_one_trial(
             )
             fit_gpytorch_model(icm_mll)
 
-        elif method == "lmc":
-            lcm_kernel = LCMKernel(
-                base_kernels=[MaternKernel()] * lin_proj_latent_dim,
-                num_tasks=config["outcome_dim"],
-                rank=1,
-            )
+        elif method in ("lmc1", "lmc2"):
+
+            # TODO: check covariance LKJ prior here
+            sd_prior = GammaPrior(1.0, 0.15)
+            eta = 0.5
+            task_covar_prior = LKJCovariancePrior(config["outcome_dim"], eta, sd_prior)
+
+            if method == "lmc1":
+                lcm_kernel = LCMKernel(
+                    base_kernels=[MaternKernel()] * lin_proj_latent_dim,
+                    num_tasks=config["outcome_dim"],
+                    rank=1,
+                    task_covar_prior=task_covar_prior,
+                )
+            else:
+                lcm_kernel = LCMKernel(
+                    base_kernels=[MaternKernel()] * lin_proj_latent_dim,
+                    num_tasks=config["outcome_dim"],
+                    rank=2,
+                    task_covar_prior=task_covar_prior,
+                )
+
             lcm_likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(
                 num_tasks=config["outcome_dim"]
             )
@@ -251,6 +267,8 @@ def run_one_trial(
                 Y,
                 outcome_transform=transforms_covar_dict[method]["outcome_tf"],
             )
+
+        outcome_model_fitting_time = time.time() - time_start
 
         if method == "pca":
 
@@ -414,7 +432,7 @@ def run_one_trial(
                     pref_model, problem=problem, util_func=util_func, n_test=N_TEST
                 )
                 print(f"final pref model acc: {pref_model_acc}")
-                sampler = SobolQMCNormalSampler(num_samples=1)
+                sampler = SobolQMCNormalSampler(1)
                 pref_obj = LearnedObjective(pref_model=pref_model, sampler=sampler)
                 exp_cand_X = gen_exp_cand(
                     outcome_model, pref_obj, problem=problem, q=1, acqf_name="qNEI", X=X
@@ -439,6 +457,7 @@ def run_one_trial(
                 "time_consumed": time_consumed,
                 "outcome_model_mse": outcome_model_mse,
                 "pref_model_acc": pref_model_acc,
+                "outcome_model_fit_time": outcome_model_fitting_time,
             }
             if method == "pca":
                 print("Updating extra recovery diagnostics for PCA")
@@ -490,3 +509,7 @@ def run_one_trial(
         exp_candidate_results=exp_candidate_results,
         within_session_results=within_session_results,
     )
+
+
+if __name__ == '__main__':
+    main()

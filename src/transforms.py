@@ -10,7 +10,6 @@ from botorch.exceptions.errors import BotorchTensorDimensionError
 from botorch.models.transforms.input import InputTransform, ReversibleInputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.posteriors import Posterior, TransformedPosterior
-from sklearn.decomposition import PCA
 from torch import Tensor
 
 # code credit to Sait
@@ -18,6 +17,18 @@ class ModifiedTransformedPosterior(TransformedPosterior):
     @property
     def event_shape(self) -> torch.Size:
         r"""The event shape (i.e. the shape of a single sample)."""
+        return self.rsample().shape[-2:]
+
+    def _extended_shape(
+        self, sample_shape: torch.Size = torch.Size()  # noqa: B008
+    ) -> torch.Size:
+        r"""Returns the shape of the samples produced by the posterior with
+        the given `sample_shape`.
+
+        NOTE: This assumes that the `sample_transform` does not change the
+        shape of the samples.
+        """
+
         return self.rsample().shape[-2:]
 
 
@@ -57,17 +68,9 @@ class PCAOutcomeTransform(OutcomeTransform):
 
         if self.training:
 
-            # TODO: use pytorch's SVD rather than sklearn to perform PCA
-            # Reason: axes_learned depends on the training targets (Y);
-            # any quantity that depends on the posterior in the metrics space will have its gradient
-            # d f(metric posterior)
-            # dependent on d (axes_learned) / d (training targets)
-            # but this step is done in sklearn, so torch gradient computation can't propagate through
-            # (we can of course use the sklearn results to check correctness)
-
-            pca = PCA()
-            _ = pca.fit_transform(Y)
-            explained_variance = pca.explained_variance_ratio_
+            U, S, V = torch.svd(Y)
+            S_squared = torch.square(S)
+            explained_variance = S_squared / S_squared.sum()
 
             if self.num_axes is None:
                 # decide the number of principal axes to keep (that makes explained variance exceed the specified threshold)
@@ -76,7 +79,7 @@ class PCAOutcomeTransform(OutcomeTransform):
                 )
                 self.num_axes = len(exceed_thres) - sum(exceed_thres) + 1
 
-            axes_learned = pca.components_[: self.num_axes, :]
+            axes_learned = torch.transpose(V[:, : self.num_axes], -2, -1)
             self.PCA_explained_variance = sum(explained_variance[: self.num_axes])
             self.axes_learned = torch.tensor(axes_learned, **tkwargs)
 

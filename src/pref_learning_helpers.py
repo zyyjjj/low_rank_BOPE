@@ -23,7 +23,7 @@ from botorch.models.model import Model
 from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
 from botorch.models.transforms.input import InputTransform
 from botorch.optim.optimize import optimize_acqf
-from botorch.sampling.samplers import SobolQMCNormalSampler
+from botorch.sampling.normal import SobolQMCNormalSampler
 
 from botorch.utils.sampling import draw_sobol_samples
 from gpytorch.likelihoods import Likelihood
@@ -188,7 +188,8 @@ def generate_random_pref_data(
         comps: pairwise comparisons of adjacent pairs in Y
     """
     X = generate_random_inputs(problem, 2 * n)
-    Y = outcome_model.posterior(X).sample().squeeze(0)
+    # Y = outcome_model.posterior(X).sample().squeeze(0)
+    Y = outcome_model.posterior(X).rsample().squeeze(0).detach()
     util = util_func(Y)
     comps = gen_comps(util)
     return Y, comps
@@ -225,7 +226,7 @@ def gen_exp_cand(
     Returns:
         candidates: `q x problem input dim` generated candidates
     """
-    sampler = SobolQMCNormalSampler(num_samples=sampler_num_outcome_samples)
+    sampler = SobolQMCNormalSampler(sampler_num_outcome_samples)
     if acqf_name == "qNEI":
         # generate experimental candidates with qNEI/qNEIUU
         acq_func = qNoisyExpectedImprovement(
@@ -365,7 +366,8 @@ def run_pref_learn(
         elif pe_strategy == "Random-f":
             # Random-f
             cand_X = generate_random_inputs(problem, n=2)
-            cand_Y = outcome_model.posterior(cand_X).sample().squeeze(0)
+            # cand_Y = outcome_model.posterior(cand_X).sample().squeeze(0)
+            cand_Y = outcome_model.posterior(cand_X).rsample().squeeze(0).detach()
         else:
             raise RuntimeError("Unknown preference exploration strategy!")
 
@@ -413,7 +415,7 @@ def find_max_posterior_mean(
         input_transform=input_transform,
         covar_module=covar_module,
     )
-    sampler = SobolQMCNormalSampler(num_samples=num_pref_samples)
+    sampler = SobolQMCNormalSampler(num_pref_samples)
     pref_obj = LearnedObjective(pref_model=pref_model, sampler=sampler)
 
     # find experimental candidate(s) that maximize the posterior mean utility
