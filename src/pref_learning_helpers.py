@@ -61,6 +61,7 @@ def gen_comps(
             with the more preferable outcome followed by the other one in each row
     """
     cpu_util = util_vals.cpu()
+    print('cpu_util: ', cpu_util)
 
     comp_pairs = []
     for i in range(cpu_util.shape[0] // 2):
@@ -86,7 +87,7 @@ def gen_comps(
 
 
 def gen_initial_real_data(
-    n: int, problem: torch.nn.Module, util_func: torch.nn.Module, comp_noise: float = 0
+    n: int, problem: torch.nn.Module, util_func: torch.nn.Module, comp_noise: float = 0, batch_eval: bool = True
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     # generate (noisy) ground truth data
     r"""Generate noisy ground truth inputs, outcomes, utility values, and comparisons.
@@ -103,9 +104,19 @@ def gen_initial_real_data(
     """
 
     X = generate_random_inputs(problem, n).detach()
-    Y = problem(X).detach()
+
+    if not batch_eval:
+        Y_list = []
+        for idx in range(len(X)):
+            y = problem(X[idx]).detach()
+            Y_list.append(y)
+        Y = torch.stack(Y_list).squeeze(1)
+    else:
+        Y = problem(X).detach()
+
     util_vals = util_func(Y).detach()
-    comps = gen_comps(util_vals, comp_noise_type="constant", comp_noise=comp_noise)
+    # comps = gen_comps(util_vals, comp_noise_type="constant", comp_noise=comp_noise)
+    comps = gen_comps(util_vals)
 
     return X, Y, util_vals, comps
 
@@ -157,7 +168,7 @@ def fit_pref_model(Y: Tensor, comps: Tensor, **model_kwargs) -> Model:
 # ======= Data generation within preference learning =======
 
 
-def generate_random_exp_data(problem: torch.nn.Module, n: int) -> Tuple[Tensor, Tensor]:
+def generate_random_exp_data(problem: torch.nn.Module, n: int, batch_eval: bool = True) -> Tuple[Tensor, Tensor]:
     r"""Generate n observations of experimental designs and outcomes.
     Args:
         problem: a TestProblem
@@ -167,7 +178,17 @@ def generate_random_exp_data(problem: torch.nn.Module, n: int) -> Tuple[Tensor, 
         Y: `n x problem outcome dim` tensor of noisy evaluated outcomes at X
     """
     X = generate_random_inputs(problem, n).detach()
-    Y = problem(X).detach()
+    if not batch_eval:
+        Y_list = []
+        for idx in range(len(X)):
+            # print('X[idx]', idx, X[idx])
+            # print('problem(X[idx])', problem(X[idx]))
+            y = problem(X[idx]).detach()
+            Y_list.append(y)
+        Y = torch.stack(Y_list).squeeze(1)
+    else:
+        Y = problem(X).detach()
+
     return X, Y
 
 
@@ -189,9 +210,12 @@ def generate_random_pref_data(
         comps: pairwise comparisons of adjacent pairs in Y
     """
     X = generate_random_inputs(problem, 2 * n)
+    print('X shape in gen_random_pref_data: ', X.shape)
     # Y = outcome_model.posterior(X).sample().squeeze(0)
     Y = outcome_model.posterior(X).rsample().squeeze(0).detach()
+    print('Y shape in gen_random_pref_data: ', Y.shape)
     util = util_func(Y)
+    print('util in gen_random_pref_data: ', util)
     comps = gen_comps(util)
     return Y, comps
 
@@ -299,54 +323,51 @@ class ModifiedFixedSingleSampleModel(DeterministicModel):
 
 
 def run_pref_learn(
-    outcome_model: Model,
-    train_Y: Tensor,
-    train_comps: Tensor,
-    n_comps: int,
-    problem: torch.nn.Module,
-    util_func: torch.nn.Module,
-    pe_strategy: str,
-    input_transform: Optional[InputTransform] = None,
-    covar_module: Optional[torch.nn.Module] = None,
-    likelihood: Optional[Likelihood] = None,
-    verbose: bool = False,
-    num_restarts: int = 8,
-    raw_samples: int = 64,
-    batch_limit: int = 4,
-) -> Tuple[Tensor, Tensor]:
-
-    r"""Perform preference exploration with a given PE strategy for n_comps rounds
-    Args:
-        outcome_model: GP model mapping input to outcome
-        train_Y: existing data for outcomes
-        train_comps: existing data for comparisons
-        n_comps: rounds of preference exploration to run
-        problem: TestProblem
-        util_func: ground truth utility function (outcome -> utility)
-        pe_strategy: preference exploration strategy, one of {"EUBO-zeta", "Random-f"}
-        input_transform: InputTransform to apply on the outcomes
-            when fitting utility model using PairwiseGP
-        covar_module: covariance module
-        likelihood: Likelihood
-        verbose: whether to print more details
-        num_restarts: number of starting points for multi-start acqf optimization
-        raw_samples: number of samples for initializing acqf optimization
-        batch_limit: the limit on batch size in gen_candidates_scipy() within optimize_acqf()
-    Returns:
-        train_Y: input train_Y with additional 2*`n_comps` outcome data points
-        train_comps: input train_comps with additional `n_comps` comparisons
-    """
-
+    outcome_model,
+    train_Y,
+    train_comps,
+    n_comps,
+    problem,
+    util_func,
+    pe_strategy,
+    input_transform=None,
+    covar_module=None,
+    likelihood=None,
+    verbose=False,
+    batch_eval=True
+):
+    """Perform preference exploration with a given PE strategy for n_comps rounds"""
+    acqf_vals = []
     for i in range(n_comps):
         if verbose:
             print(f"Running {i+1}/{n_comps} preference learning using {pe_strategy}")
-        pref_model = fit_pref_model(
-            train_Y,
-            train_comps,
-            input_transform=input_transform,
-            covar_module=covar_module,
-            likelihood=likelihood,
-        )
+
+        fit_model_succeed = False
+        pref_model_acc = None
+        for _ in range(3):
+            try:
+                pref_model = fit_pref_model(
+                    train_Y,
+                    train_comps,
+                    input_transform=input_transform,
+                    covar_module=covar_module,
+                    likelihood=likelihood,
+                )
+                # TODO: commented out to accelerate things
+                # pref_model_acc = check_pref_model_fit(
+                #     pref_model, problem=problem, util_func=util_func, n_test=1000, batch_eval=batch_eval
+                # )
+                print("Pref model fitting successful")
+                fit_model_succeed = True
+                break
+            except (ValueError, RuntimeError):
+                continue
+        if not fit_model_succeed:
+            print(
+                "fit_pref_model() failed 3 times, stop current call of run_pref_learn()"
+            )
+            return train_Y, train_comps, None, acqf_vals
+
         if pe_strategy == "EUBO-zeta":
             # EUBO-zeta
             one_sample_outcome_model = ModifiedFixedSingleSampleModel(
@@ -355,19 +376,34 @@ def run_pref_learn(
             acqf = AnalyticExpectedUtilityOfBestOption(
                 pref_model=pref_model, outcome_model=one_sample_outcome_model
             )
-            cand_X, acqf_val = optimize_acqf(
-                acq_function=acqf,
-                q=2,
-                bounds=problem.bounds,
-                num_restarts=num_restarts,
-                raw_samples=raw_samples,  # used for initialization heuristic
-                options={"batch_limit": batch_limit},
-            )
-            cand_Y = one_sample_outcome_model(cand_X)
+            found_valid_candidate = False
+            for _ in range(3):
+                try:
+                    cand_X, acqf_val = optimize_acqf(
+                        acq_function=acqf,
+                        q=2,
+                        bounds=problem.bounds,
+                        num_restarts=8,
+                        raw_samples=64,  # used for intialization heuristic
+                        options={"batch_limit": 4},
+                    )
+                    cand_Y = one_sample_outcome_model(cand_X)
+                    acqf_vals.append(acqf_val.item())
+
+                    found_valid_candidate = True
+                    break
+                except (ValueError, RuntimeError):
+                    continue
+
+            if not found_valid_candidate:
+                print(
+                    "optimize_acqf() failed 3 times for EUBO, stop current call of run_pref_learn()"
+                )
+                return train_Y, train_comps, None, acqf_vals
+
         elif pe_strategy == "Random-f":
             # Random-f
             cand_X = generate_random_inputs(problem, n=2)
-            # cand_Y = outcome_model.posterior(cand_X).sample().squeeze(0)
             cand_Y = outcome_model.posterior(cand_X).rsample().squeeze(0).detach()
         else:
             raise RuntimeError("Unknown preference exploration strategy!")
@@ -378,8 +414,7 @@ def run_pref_learn(
         train_comps = torch.cat((train_comps, cand_comps + train_Y.shape[0]))
         train_Y = torch.cat((train_Y, cand_Y))
 
-    return train_Y, train_comps
-
+    return train_Y, train_comps, pref_model_acc, acqf_vals
 
 def find_max_posterior_mean(
     outcome_model: Model,
@@ -442,7 +477,7 @@ def find_max_posterior_mean(
 
 
 def check_outcome_model_fit(
-    outcome_model: Model, problem: torch.nn.Module, n_test: int
+    outcome_model: Model, problem: torch.nn.Module, n_test: int, batch_eval: bool = True
 ) -> float:
     r"""
     Evaluate the goodness of fit of the outcome model.
@@ -460,7 +495,14 @@ def check_outcome_model_fit(
     # generate test set
     # note: we don't call generate_random_exp_data() because eval is noisy
     test_X = generate_random_inputs(problem, n_test).detach()
-    test_Y = problem.evaluate_true(test_X).detach()
+    if not batch_eval:
+        Y_list = []
+        for idx in range(len(test_X)):
+            y = problem(test_X[idx]).detach()
+            Y_list.append(y)
+        test_Y = torch.stack(Y_list).squeeze(1)
+    else:
+        test_Y = problem.evaluate_true(test_X).detach()
 
     # run outcome model posterior prediction on test data
     test_posterior_mean = outcome_model.posterior(test_X).mean
@@ -472,7 +514,7 @@ def check_outcome_model_fit(
 
 
 def check_pref_model_fit(
-    pref_model: Model, problem: torch.nn.Module, util_func: torch.nn.Module, n_test: int
+    pref_model: Model, problem: torch.nn.Module, util_func: torch.nn.Module, n_test: int, batch_eval: bool
 ) -> float:
     r"""
     Evaluate the goodness of fit of the utility model.
@@ -489,7 +531,7 @@ def check_pref_model_fit(
 
     # generate test set
     test_X, test_Y, test_util_vals, test_comps = gen_initial_real_data(
-        n=n_test, problem=problem, util_func=util_func, comp_noise=0
+        n=n_test, problem=problem, util_func=util_func, comp_noise=0, batch_eval=batch_eval
     )
 
     # run pref_model on test data, get predictions

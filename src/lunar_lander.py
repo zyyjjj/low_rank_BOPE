@@ -540,13 +540,16 @@ class LunarLander:
         self.envs = envs
 
     def __call__(self, x):
-        assert x.ndim == 1 and len(x) == self.dim
+        # print('call lunar lander, x shape', x.shape)
+        # assert x.ndim == 1 and len(x) == self.dim
         assert (x >= self.bounds[0, :]).all() and (x <= self.bounds[1, :]).all()
 
         x_np = x.cpu().numpy().ravel()
         x_np = np.array(x_np).reshape((-1, 12))
+        # print('reshaped x_np shape: ', x_np.shape)
         ns = len(self.envs)
         nx = len(x_np)
+        # print('ns, nx', ns, nx)
         x_tiled = np.tile(x_np, (ns, 1))
         seed_rep = np.repeat(self.envs, nx)
         render_rep = np.repeat(self.render, ns)
@@ -555,6 +558,8 @@ class LunarLander:
         rewards = np.array(
             self.pool.map(lunar_lander_reward_Heuristic_fun, params)
         ).reshape((-1))
+
+        # print('rewards shape: ', rewards.shape)
 
         # FLIP THE SIGN SINCE WE ARE MINIMIZING!
         rewards = -1 * rewards.reshape((ns, nx))
@@ -571,4 +576,8 @@ class LunarLander:
             constraints, dtype=x.dtype, device=x.device
         ).unsqueeze(0)
 
-        return mean_reward, constraints
+        # return mean_reward, constraints
+        return constraints
+
+    def evaluate_true(self, x):
+        return self.__call__(x)

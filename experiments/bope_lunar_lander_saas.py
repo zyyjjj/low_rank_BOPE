@@ -11,6 +11,7 @@ sys.path.append('..')
 
 
 from src.lunar_lander import LunarLander
+from low_rank_BOPE.src.saasgp_utils import get_and_fit_map_saas_model
 from low_rank_BOPE.src.pref_learning_helpers import (
     check_outcome_model_fit,
     check_pref_model_fit,
@@ -57,6 +58,8 @@ from gpytorch.kernels import LCMKernel, MaternKernel
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
 from gpytorch.priors.lkj_prior import LKJCovariancePrior
+
+from ax.fb.models.torch.map_saas import get_and_fit_map_saas_model # this is not open-sourced
 
 N_BOPE_REPS = 5
 PCA_VAR_THRESHOLD = 0.95
