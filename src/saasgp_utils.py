@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 import torch
 from botorch.exceptions import UnsupportedError
 from botorch.fit import fit_gpytorch_mll
+from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
 from botorch.models.gp_regression import FixedNoiseGP, SingleTaskGP
 from botorch.models.transforms.input import InputTransform
@@ -19,6 +20,7 @@ from gpytorch.priors import GammaPrior, HalfCauchyPrior, NormalPrior
 from torch import Tensor
 from torch.distributions.half_cauchy import HalfCauchy
 from torch.nn import Parameter
+
 
 
 class SaasPriorHelper:
