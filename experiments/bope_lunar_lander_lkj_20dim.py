@@ -68,22 +68,26 @@ N_TEST = 1000
 
 tkwargs = {"dtype": torch.double}
 
-# class for saving experiment data
-class OneRun(NamedTuple):
-    exp_candidate_results: List[Dict[str, Any]]
-    within_session_results: List[Dict[str, Any]]
-
-
 BASE_CONFIG = {
     "initial_experimentation_batch": 16,
     "n_check_post_mean": 8,
+    # "n_check_post_mean": 1,
     "every_n_comps": 3,
 }
 
 INPUT_DIM = 12
-NUM_ENVS = [50]  # this is the number of scenarios, so number of outcomes
+NUM_ENVS = [20]  # this is the number of scenarios, so number of outcomes
 MIN_REWARD_DIFF = 0
 SIGMOID_COEFF = 0.05
+
+METHODS = [
+        "st",
+        "pca", # TODO: add back
+        # "random_linear_proj",
+        # "random_subset",
+        "lmc1",
+        "lmc2"
+    ]
 
 # design sigmoid utility function reflecting distance from constraint
 # torch.sigmoid( coeff * (outcome - MIN_REWARD) ),
@@ -95,7 +99,7 @@ class Sigmoid(torch.nn.Module):
         self.scale_coeff = scale_coeff
         self.threshold = threshold
 
-    def forward(self, Y, X=None):
+    def forward(self, Y, X=None)->torch.Tensor:
         if len(Y.shape) == 1:
             Y = Y.unsqueeze(0)
 
@@ -108,7 +112,7 @@ def main(
     num_envs_list: List[int] = [50],
     n_trials: int = N_BOPE_REPS,
     save_file_name: str = 'lunar_lander_results_lkj'
-) -> Dict[str, List[OneRun]]:
+) -> Dict[int, List]:
 
     all_results = defaultdict(list)
 
@@ -133,10 +137,8 @@ def main(
         #         util_func=sigmoid_util_func,
         #         trial_idx=i,
         #         config=config,
-        #         **tkwargs,
+        #         # **tkwargs,
         #     ))
-
-        #     torch.save(all_results, save_file_name)
 
     return all_results
 
@@ -147,8 +149,8 @@ def run_one_trial(
     trial_idx: int,
     config: Dict[str, Any],
     verbose=True,
-    **tkwargs,
-) -> OneRun:
+    # **tkwargs,
+) -> Dict:
 
     print(f"Running trial number {trial_idx} for the problem config:")
     print(problem, util_func, config)
@@ -208,15 +210,7 @@ def run_one_trial(
         },
     }
 
-    for method in [
-        "st",
-        "pca",
-        # "random_linear_proj",
-        # "random_subset",
-        "lmc1",
-        "lmc2"
-        # "mtgp",
-    ]:
+    for method in METHODS:
 
         print(f"=====Running method {method}=====")
 
@@ -536,4 +530,4 @@ def run_one_trial(
 
 
 if __name__ == '__main__':
-    main(save_file_name = '1202_lunar_lander_results_lkj')
+    main(num_envs_list = NUM_ENVS, save_file_name = '1202_lunar_lander_results_lkj_20dim')

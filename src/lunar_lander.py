@@ -490,10 +490,15 @@ def heuristic_controller(s, W):
 
 
 def lunar_lander_reward_Heuristic_fun(params):
+    """
+    Args:
+        params: length-3 list [x, seed, render]
+    """
     x = params[0]
     seed = params[1]
     render = params[2]
     env = _Lunar_Lander()
+    # print('seed', seed)
     np.random.seed(seed)
     env.seed(int(seed))
     s = env.reset()
@@ -530,7 +535,7 @@ class LunarLander:
         lb = torch.zeros(12, dtype=dtype, device=device)
         ub = torch.ones(12, dtype=dtype, device=device)
         self.bounds = torch.stack((lb, ub), dim=0)
-        self.pool = multiprocessing.Pool(n_cores)
+        # self.pool = multiprocessing.Pool(n_cores)
         self.min_reward = min_reward
         self.dim = 12
         self.n_constraints = len(envs)
@@ -555,20 +560,30 @@ class LunarLander:
         render_rep = np.repeat(self.render, ns)
 
         params = [[xi, si, ri] for xi, si, ri in zip(x_tiled, seed_rep, render_rep)]
-        rewards = np.array(
-            self.pool.map(lunar_lander_reward_Heuristic_fun, params)
-        ).reshape((-1))
+        # rewards = np.array(
+        #     self.pool.map(lunar_lander_reward_Heuristic_fun, params)
+        # ).reshape((-1))
+        # TRY: ditch multiprocessing here so that I can parallelize the BOPE trials
+        rewards = []
+        for param in params:
+            rewards.append(lunar_lander_reward_Heuristic_fun(param))
+        rewards = np.array(rewards).reshape((-1))
 
         # print('rewards shape: ', rewards.shape)
 
-        # FLIP THE SIGN SINCE WE ARE MINIMIZING!
-        rewards = -1 * rewards.reshape((ns, nx))
+        # Original: FLIP THE SIGN SINCE WE ARE MINIMIZING!
+        # rewards = -1 * rewards.reshape((ns, nx))
+        rewards = rewards.reshape((ns, nx))
 
         # Compute the constraints
         mean_reward = np.mean(rewards, axis=0).squeeze()
+        # constraints = (
+        #     rewards.transpose().squeeze() + self.min_reward
+        # )  # -reward <= -min_reward
         constraints = (
-            rewards.transpose().squeeze() + self.min_reward
-        )  # -reward <= -min_reward
+            rewards.transpose().squeeze() - self.min_reward
+        )  # reward -min_reward
+
 
         # Make tensors
         mean_reward = torch.tensor(mean_reward, dtype=x.dtype, device=x.device)
