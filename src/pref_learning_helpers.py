@@ -189,6 +189,8 @@ def generate_random_exp_data(problem: torch.nn.Module, n: int, batch_eval: bool 
     else:
         Y = problem(X).detach()
 
+    print('generated outcomes: ', Y)
+
     return X, Y
 
 

@@ -60,7 +60,7 @@ from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikeliho
 from gpytorch.priors import GammaPrior
 from gpytorch.priors.lkj_prior import LKJCovariancePrior
 
-N_BOPE_REPS = 10
+N_BOPE_REPS = 30
 PCA_VAR_THRESHOLD = 0.95
 AUGMENTED_DIMS_NOISE = 0.1
 MIN_STD = 100000
@@ -76,14 +76,15 @@ class OneRun(NamedTuple):
 
 BASE_CONFIG = {
     "initial_experimentation_batch": 16,
-    "n_check_post_mean": 8,
+    "n_check_post_mean": 8, 
     "every_n_comps": 3,
 }
 
 INPUT_DIM = 12
 NUM_ENVS = [50]  # this is the number of scenarios, so number of outcomes
+BASELINE_REWARD = -200
 MIN_REWARD_DIFF = 0
-SIGMOID_COEFF = 0.05
+SIGMOID_COEFF = 0.01
 
 # design sigmoid utility function reflecting distance from constraint
 # torch.sigmoid( coeff * (outcome - MIN_REWARD) ),
@@ -117,7 +118,10 @@ def main(
         config = copy.deepcopy(BASE_CONFIG)
         config["input_dim"] = INPUT_DIM
         config["outcome_dim"] = num_envs
-        problem = LunarLander(num_envs=num_envs)
+        problem = LunarLander(
+            num_envs=num_envs,
+            min_reward=BASELINE_REWARD
+        )
 
         # make this part multiprocessing
         mpc_args = [(problem, sigmoid_util_func, int(i), config) for i in range(N_BOPE_REPS)]
@@ -242,7 +246,7 @@ def run_one_trial(
             # TODO: check covariance LKJ prior here
             sd_prior = GammaPrior(1.0, 0.15)
             eta = 0.5
-            task_covar_prior = LKJCovariancePrior(config["outcome_dim"], eta, sd_prior)
+            task_covar_prior = LKJCovariancePrior(config["outcome_dim"], eta, sd_prior).to(**tkwargs)
 
             if method == "lmc1":
                 lcm_kernel = LCMKernel(
@@ -274,7 +278,7 @@ def run_one_trial(
             ).to(**tkwargs)
             lcm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
-            )
+            ).to(**tkwargs)
             fit_gpytorch_scipy(lcm_mll, options={"maxls": 30})
 
         else:
@@ -536,4 +540,4 @@ def run_one_trial(
 
 
 if __name__ == '__main__':
-    main(save_file_name = '1202_lunar_lander_results_lkj')
+    main(save_file_name = '1203_lunar_lander_results_lkj')

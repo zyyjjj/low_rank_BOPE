@@ -571,18 +571,18 @@ class LunarLander:
 
         # print('rewards shape: ', rewards.shape)
 
-        # Original: FLIP THE SIGN SINCE WE ARE MINIMIZING!
+        # Original code from David: FLIP THE SIGN SINCE WE ARE MINIMIZING!
         # rewards = -1 * rewards.reshape((ns, nx))
-        rewards = rewards.reshape((ns, nx))
-
-        # Compute the constraints
-        mean_reward = np.mean(rewards, axis=0).squeeze()
         # constraints = (
         #     rewards.transpose().squeeze() + self.min_reward
         # )  # -reward <= -min_reward
+
+        rewards = rewards.reshape((ns, nx))
+        mean_reward = np.mean(rewards, axis=0).squeeze()
         constraints = (
             rewards.transpose().squeeze() - self.min_reward
-        )  # reward -min_reward
+        ) 
+        # this is the amount that each env's reward exceeds the baseline reward
 
 
         # Make tensors
