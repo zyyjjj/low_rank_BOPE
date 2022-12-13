@@ -535,7 +535,7 @@ class LunarLander:
         lb = torch.zeros(12, dtype=dtype, device=device)
         ub = torch.ones(12, dtype=dtype, device=device)
         self.bounds = torch.stack((lb, ub), dim=0)
-        # self.pool = multiprocessing.Pool(n_cores)
+        self.pool = multiprocessing.Pool(n_cores) # comment if not using MPC
         self.min_reward = min_reward
         self.dim = 12
         self.n_constraints = len(envs)
@@ -560,14 +560,14 @@ class LunarLander:
         render_rep = np.repeat(self.render, ns)
 
         params = [[xi, si, ri] for xi, si, ri in zip(x_tiled, seed_rep, render_rep)]
-        # rewards = np.array(
-        #     self.pool.map(lunar_lander_reward_Heuristic_fun, params)
-        # ).reshape((-1))
-        # TRY: ditch multiprocessing here so that I can parallelize the BOPE trials
-        rewards = []
-        for param in params:
-            rewards.append(lunar_lander_reward_Heuristic_fun(param))
-        rewards = np.array(rewards).reshape((-1))
+        rewards = np.array(
+            self.pool.map(lunar_lander_reward_Heuristic_fun, params)
+        ).reshape((-1))
+        # Alternative: evaluate sequentially so that I can parallelize the BOPE trials
+        # rewards = []
+        # for param in params:
+        #     rewards.append(lunar_lander_reward_Heuristic_fun(param))
+        # rewards = np.array(rewards).reshape((-1))
 
         # print('rewards shape: ', rewards.shape)
 
@@ -583,7 +583,6 @@ class LunarLander:
             rewards.transpose().squeeze() - self.min_reward
         ) 
         # this is the amount that each env's reward exceeds the baseline reward
-
 
         # Make tensors
         mean_reward = torch.tensor(mean_reward, dtype=x.dtype, device=x.device)
