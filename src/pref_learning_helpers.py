@@ -231,6 +231,7 @@ def gen_exp_cand(
     problem: torch.nn.Module,
     q: int,
     acqf_name: str,
+    seed: int,
     X: Optional[Tensor] = None,
     sampler_num_outcome_samples: int = 64,
     num_restarts: int = 8,
@@ -281,7 +282,7 @@ def gen_exp_cand(
         bounds=problem.bounds,
         num_restarts=num_restarts,
         raw_samples=raw_samples,
-        options={"batch_limit": batch_limit},
+        options={"batch_limit": batch_limit, "seed": seed},
         sequential=True,
     )
     return candidates
@@ -332,6 +333,7 @@ def run_pref_learn(
     problem,
     util_func,
     pe_strategy,
+    seed,
     input_transform=None,
     covar_module=None,
     likelihood=None,
@@ -387,7 +389,7 @@ def run_pref_learn(
                         bounds=problem.bounds,
                         num_restarts=8,
                         raw_samples=64,  # used for intialization heuristic
-                        options={"batch_limit": 4},
+                        options={"batch_limit": 4, "seed": seed},
                     )
                     cand_Y = one_sample_outcome_model(cand_X)
                     acqf_vals.append(acqf_val.item())
