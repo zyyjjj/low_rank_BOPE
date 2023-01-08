@@ -1,5 +1,4 @@
-# (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
-
+#!/usr/bin/env python3
 import torch
 
 from botorch.utils.sampling import draw_sobol_samples
@@ -33,6 +32,7 @@ class BopeExperiment:
         "sampler_num_outcome_samples": 64,
         "maxiter": 1000,
         "use_PCR": False
+        # maybe num_axes, default to None?
     }
 
 
@@ -46,6 +46,7 @@ class BopeExperiment:
 
         # TODO: if we pass in a list of methods
         # where in this class do we loop over the methods?
+        # or do we do this outside of the class?
 
 
         # pre-specified experiment metadata
