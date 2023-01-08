@@ -1,9 +1,55 @@
 #!/usr/bin/env python3
-import torch
-
-from botorch.utils.sampling import draw_sobol_samples
 
 from collections import defaultdict
+import gpytorch
+import numpy as np
+import torch
+
+from gpytorch.kernels import LCMKernel, MaternKernel
+from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
+from gpytorch.priors import GammaPrior
+from gpytorch.priors.lkj_prior import LKJCovariancePrior
+
+from botorch.models.transforms.outcome import ChainedOutcomeTransform, Standardize
+from botorch.models.transforms.input import (
+    ChainedInputTransform,
+    FilterFeatures,
+    Normalize,
+)
+from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
+from botorch.fit import fit_gpytorch_mll, fit_gpytorch_model
+from botorch.acquisition.objective import GenericMCObjective, LearnedObjective
+from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
+from botorch.models.multitask import KroneckerMultiTaskGP
+from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.test_functions.base import MultiObjectiveTestProblem
+from botorch.utils.sampling import draw_sobol_samples
+
+from sklearn.linear_model import LinearRegression
+
+from low_rank_BOPE.src.pref_learning_helpers import (
+    check_outcome_model_fit,
+    check_pref_model_fit,
+    # find_max_posterior_mean, # TODO: later see if we want the error-handled version
+    fit_outcome_model,
+    # fit_pref_model, # TODO: later see if we want the error-handled version
+    # gen_exp_cand,
+    generate_random_exp_data,
+    generate_random_pref_data,
+    gen_comps,
+    ModifiedFixedSingleSampleModel
+)
+from low_rank_BOPE.src.transforms import (
+    generate_random_projection,
+    InputCenter,
+    LinearProjectionInputTransform,
+    LinearProjectionOutcomeTransform,
+    PCAInputTransform,
+    PCAOutcomeTransform,
+    SubsetOutcomeTransform,
+)
+from low_rank_BOPE.src.models import make_modified_kernel, MultitaskGPModel
+
 
 
 class BopeExperiment:
@@ -45,7 +91,6 @@ class BopeExperiment:
         """
 
         # one run should handle one problem and >=1 methods and >=1 pe_strategies
-
 
 
         # pre-specified experiment metadata
@@ -459,7 +504,7 @@ class BopeExperiment:
             # "outcome_model_fit_time": outcome_model_fitting_time,
         }
 
-        # TODO: log PCA subspace recovery diagnostics
+        # TODO: later log PCA subspace recovery diagnostics
 
         self.final_candidate_results[method][pe_strategy] = exp_result # TODO: doublecheck
 
