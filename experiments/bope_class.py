@@ -3,19 +3,7 @@ import torch
 
 from botorch.utils.sampling import draw_sobol_samples
 
-
-# TODO: nested dictionary
-methods_settings = {
-    "st": None,
-    "pca": None,
-    "random_linear_proj": None,
-    "random_subset": None,
-    "lmc1": None,
-    "lmc2": None
-}
-# one run should handle one problem and >=1 methods
-
-
+from collections import defaultdict
 
 
 class BopeExperiment:
@@ -56,6 +44,9 @@ class BopeExperiment:
             PE_strategies: PE strategies to use, could be {"EUBO-zeta", "Random-f"}
         """
 
+        # one run should handle one problem and >=1 methods and >=1 pe_strategies
+
+
 
         # pre-specified experiment metadata
         self.problem = problem
@@ -70,23 +61,14 @@ class BopeExperiment:
         for key in kwargs.keys():
             setattr(self, key, kwargs[key])
 
-        # results logging
-        # but should have a list for each method
-        # TODO: maybe make into dicts?
-        self.within_session_results = []
-        self.exp_candidate_results = []
-
         self.methods = methods
         self.pe_strategies = pe_strategies
 
-        # TODO: for each method, have a dict of model class, transforms, other hyperparameters
-        # make this dictionary a class attribute?
-        # or maybe store this dict in an external yaml file for cleanness
-        # then make self.methods_dict = {}
-
+        # logging models and results
         self.outcome_models_dict = {}
-        self.util_models_dict = {}
-        self.pref_data_dict = {}
+        self.pref_data_dict = defaultdict(dict)
+        self.PE_session_results = defaultdict(dict)
+        self.final_candidate_results = defaultdict(dict)
 
         # specify outcome and input transforms, covariance modules
         self.transforms_covar_dict = {
@@ -126,33 +108,10 @@ class BopeExperiment:
             },
         }
 
-
-
-        # error handling
+        # TODO: error handling
         self.passed = False
         self.fit_count = 0
 
-    def run_first_experimentation_stage(self, method):
-
-        self.fit_outcome_model(method)
-
-
-    def run_PE_stage(self, method):
-        # initial result stored in self.pref_data_dict
-        self.generate_random_pref_data(method, n)
-
-        for pe_strategy in self.pe_strategies:
-            self.find_max_posterior_mean()
-            for j in range(self.n_check_post_mean):
-                self.run_pref_learning()
-                self.find_max_posterior_mean()
-                # TODO: then update result
-        pass
-
-    def run_second_experimentation_stage(self, method):
-        for pe_strategy in self.pe_strategies:
-            self.generate_experiment_candidate(method, pe_strategy)
-        pass
 
     def generate_random_experiment_data(self, n, compute_util: False):
         r"""Generate n observations of experimental designs and outcomes.
@@ -180,9 +139,6 @@ class BopeExperiment:
 
 
     def fit_outcome_model(self, method):
-        # use self.X, self.Y, self.outcome_transform
-        # maybe input model class and other kwargs hyperparameters
-        # handle different methods differently
 
         if method == "mtgp":
             outcome_model = KroneckerMultiTaskGP(
@@ -234,11 +190,12 @@ class BopeExperiment:
         elif method == "pcr":
             P, S, V = torch.svd(self.Y)
             # then run regression from P (PCs) onto util_vals
-            # select top k entries of PC_coeff
             # retain the corresponding columns in P
 
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
-            dims_to_keep = np.argpartition(reg.coef_, -config["outcome_dim"] // 3)[
+            # select top k entries of PC_coeff
+            # TODO: check abs() correctness
+            dims_to_keep = np.argpartition(np.abs(reg.coef_), -config["outcome_dim"] // 3)[
                 -config["outcome_dim"] // 3 :    # TODO: update
             ]
 
@@ -326,24 +283,28 @@ class BopeExperiment:
 
         return util_model
 
+
     def run_pref_learning(self, method, pe_strategy):
-        # TODO
 
         acqf_vals = []
         for i in range(self.every_n_comps):
+
+            train_Y, train_comps = self.pref_data_dict[method][pe_strategy]
+
             if verbose:
                 print(f"Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
 
             fit_model_succeed = False
             pref_model_acc = None
+
             for _ in range(3):
                 try:
-                    pref_model = fit_pref_model(
+                    pref_model = self.fit_pref_model(
                         train_Y,
                         train_comps,
-                        input_transform=input_transform,
-                        covar_module=covar_module,
-                        likelihood=likelihood,
+                        input_transform=self.transforms_covar_dict[method]["input_tf"],
+                        covar_module=self.transforms_covar_dict[method]["covar_module"],
+                        # likelihood=likelihood,
                     )
                     # TODO: commented out to accelerate things
                     # pref_model_acc = check_pref_model_fit(
@@ -359,14 +320,17 @@ class BopeExperiment:
                     "fit_pref_model() failed 3 times, stop current call of run_pref_learn()"
                 )
                 return train_Y, train_comps, None, acqf_vals
+                # TODO we don't want to return, just not change the current values
 
             if pe_strategy == "EUBO-zeta":
                 # EUBO-zeta
                 one_sample_outcome_model = ModifiedFixedSingleSampleModel(
-                    model=outcome_model, outcome_dim=train_Y.shape[-1]
+                    model=self.outcome_model_dict[method],
+                    outcome_dim=train_Y.shape[-1]
                 )
                 acqf = AnalyticExpectedUtilityOfBestOption(
-                    pref_model=pref_model, outcome_model=one_sample_outcome_model
+                    pref_model=pref_model,
+                    outcome_model=one_sample_outcome_model
                 )
                 found_valid_candidate = False
                 for _ in range(3):
@@ -374,10 +338,10 @@ class BopeExperiment:
                         cand_X, acqf_val = optimize_acqf(
                             acq_function=acqf,
                             q=2,
-                            bounds=problem.bounds,
+                            bounds=self.problem.bounds,
                             num_restarts=8,
                             raw_samples=64,  # used for intialization heuristic
-                            options={"batch_limit": 4, "seed": seed},
+                            options={"batch_limit": 4, "seed": self.trial_idx},
                         )
                         cand_Y = one_sample_outcome_model(cand_X)
                         acqf_vals.append(acqf_val.item())
@@ -395,31 +359,32 @@ class BopeExperiment:
 
             elif pe_strategy == "Random-f":
                 # Random-f
-                cand_X = generate_random_inputs(problem, n=2)
-                cand_Y = outcome_model.posterior(cand_X).rsample().squeeze(0).detach()
+                cand_X = generate_random_inputs(self.problem, n=2)
+                cand_Y = self.outcome_model_dict[method].posterior(cand_X).rsample().squeeze(0).detach()
             else:
                 raise RuntimeError("Unknown preference exploration strategy!")
 
             cand_Y = cand_Y.detach().clone()
-            cand_comps = gen_comps(util_func(cand_Y))
+            cand_comps = gen_comps(self.util_func(cand_Y))
 
             train_comps = torch.cat((train_comps, cand_comps + train_Y.shape[0]))
             train_Y = torch.cat((train_Y, cand_Y))
 
-        return train_Y, train_comps, pref_model_acc, acqf_vals
+        self.pref_data_dict[method][pe_strategy] = (train_Y, train_comps)
 
+        # return train_Y, train_comps, pref_model_acc, acqf_vals
+        # TODO: not logging pref_model_acc and acqf_vals now
 
-
-        pass
 
     def find_max_posterior_mean(self, method, pe_strategy, num_pref_samples = 1):
         # TODO: understand whether we should increase num_pref_samples from 1!
 
-        self.outcome_model_dict[method]
         train_Y, train_comps = self.pref_data_dict[method][pe_strategy]
         # seed = self.trial_idx
 
-        pref_model = fit_pref_model(
+        within_result = {}
+
+        pref_model = self.fit_pref_model(
             Y = train_Y,
             comps = train_comps,
             input_transform = self.transforms_covar_dict[method]["input_tf"],
@@ -435,29 +400,69 @@ class BopeExperiment:
             problem=self.problem,
             q=1,
             acqf_name="posterior_mean",
+            seed=self.trial_idx
         )
 
         post_mean_util = self.util_func(self.problem.evaluate_true(post_mean_cand_X)).item()
         if verbose:
             print(f"True utility of posterior mean utility maximizer: {post_mean_util:.3f}")
 
-        # TODO: update results
-        # within_result = {
-        #     "n_comps": train_comps.shape[0],
-        #     "util": post_mean_util,
-        # }
-        # return within_result
+        within_result = {
+            "n_comps": train_comps.shape[0],
+            "util": post_mean_util,
+            "run_id": self.trial_idx,
+            "pe_strategy": pe_strategy,
+            "method": method,
+        }
+
+        return within_result
 
 
+    def generate_final_candidate(self, method, pe_strategy):
 
-    def generate_experiment_candidate(self):
-        # TODO
-        self.fit_pref_model()
-        # note that this is method and pe-strategy specific
-        # maybe could store data / pref model in a dict
-        # like self.pref_data[method][strategy] has train_Y, train_comps, pref_model
-        # then define qneiuu, and find its maximizer
-        pass
+        train_Y, train_comps = self.pref_data_dict[method][pe_strategy]
+
+        pref_model = self.fit_pref_model(
+            Y = train_Y,
+            comps = train_comps,
+            input_transform = self.transforms_covar_dict[method]["input_tf"],
+            covar_module = self.transforms_covar_dict[method]["covar_module"]
+        )
+        sampler = SobolQMCNormalSampler(1)
+        pref_obj = LearnedObjective(pref_model=pref_model, sampler=sampler)
+
+        # find experimental candidate(s) that maximize the posterior mean utility
+        cand_X = gen_exp_cand(
+            outcome_model=self.outcome_model_dict[method],
+            objective=pref_obj,
+            problem=self.problem,
+            q=1,
+            acqf_name="qNEI",
+            X=self.X,
+            seed=self.trial_idx
+        )
+
+        qneiuu_util = self.util_func(self.problem.evaluate_true(cand_X)).item()
+        print(
+            f"{method}-{pe_strategy} qNEIUU candidate utility: {qneiuu_util:.5f}"
+        )
+
+        exp_result = {
+            "candidate": exp_cand_X,
+            "candidate_util": qneiuu_util,
+            "method": method,
+            "strategy": pe_strategy,
+            "run_id": self.trial_idx,
+            # "time_consumed": time_consumed,
+            # "outcome_model_mse": outcome_model_mse,
+            # "pref_model_acc": pref_model_acc,
+            # "outcome_model_fit_time": outcome_model_fitting_time,
+        }
+
+        # TODO: log PCA subspace recovery diagnostics
+
+        self.final_candidate_results[method][pe_strategy] = exp_result # TODO: doublecheck
+
 
     def generate_random_pref_data(self, method, n):
 
@@ -480,18 +485,49 @@ class BopeExperiment:
             self.pref_data_dict[method][pe_strategy] = (Y, comps)
 
 
+# ======== Putting it together into steps ========
+
+    def run_first_experimentation_stage(self, method):
+
+        self.fit_outcome_model(method)
+
+
+    def run_PE_stage(self, method):
+        # initial result stored in self.pref_data_dict
+        self.generate_random_pref_data(method, n)
+
+        for pe_strategy in self.pe_strategies:
+
+            self.PE_session_results[method][pe_strategy] = []
+
+            self.PE_session_results[method][pe_strategy].append(
+                self.find_max_posterior_mean(method, pe_strategy)
+            )
+            for j in range(self.n_check_post_mean):
+                self.run_pref_learning(method, pe_strategy)
+                self.PE_session_results[method][pe_strategy].append(
+                    self.find_max_posterior_mean(method, pe_strategy)
+                )
+
+    def run_second_experimentation_stage(self, method):
+        for pe_strategy in self.pe_strategies:
+            self.generate_final_candidate(method, pe_strategy)
+        pass
+
+
+# ======== BOPE loop ========
+
     def run_BOPE_loop(self):
-        # handle repetitions
+        # handle multiple trials
         # have a flag for whether the fitting is successful or not
 
-        # maybe cache this after first time
+        # all methods use the same initial experimentation data
         self.generate_random_experiment_data(
             self.initial_experimentation_batch,
             compute_util = True
         )
 
         for method in self.methods:
-            # TODO: make sure to fix the seed for first exp stage for different methods
             self.run_first_experimentation_stage(method)
             self.run_PE_stage(method)
             self.run_second_experimentation_stage(method)
@@ -500,3 +536,4 @@ class BopeExperiment:
         # maybe have an outcome_model_dict?
 
         # TODO: then have a way to store the optimization outcomes
+        # return self.PE_session_results, self.final_candidate_results
