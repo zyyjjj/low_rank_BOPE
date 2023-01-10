@@ -50,7 +50,7 @@ from botorch.models.transforms.input import (
 )
 
 from botorch.models.transforms.outcome import ChainedOutcomeTransform, Standardize
-from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.sampling.samplers import SobolQMCNormalSampler
 from botorch.test_functions.base import MultiObjectiveTestProblem
 
 from low-rank-BOPE.src.diagnostics import (
@@ -98,9 +98,6 @@ BASE_CONFIG = {
 }
 
 
-# workflow
-@flow.registered(owners=["oncall+ae_experiments"])
-@flow.typed()
 def main(
     # test_problems: Dict[str, Tuple[Any]] = test_problems,
     problem_setup_names: List[str] = problem_setup_names,
@@ -113,6 +110,7 @@ def main(
 
         input_dim, outcome_dim, problem, _, util_func, _, _ = problem_setup_augmented(
             problem_setup_name, augmented_dims_noise=AUGMENTED_DIMS_NOISE, **tkwargs
+            # TODO: maybe need seed
         )
         config = copy.deepcopy(BASE_CONFIG)
         config["input_dim"] = input_dim
@@ -132,9 +130,6 @@ def main(
     return all_results
 
 
-# each trial is one BOPE run for a particular problem, utility function
-@flow.flow_async()
-@flow.typed()
 def run_one_trial(
     problem: torch.nn.Module,
     util_func: torch.nn.Module,
@@ -142,7 +137,7 @@ def run_one_trial(
     config: Dict[str, Any],
     verbose=True,
     **tkwargs,
-) -> OneRun:
+) -> Dict:
 
     print(f"Running trial number {trial_idx} for the problem config:")
     print(problem, util_func, config)
@@ -158,6 +153,11 @@ def run_one_trial(
 
     X, Y = generate_random_exp_data(problem, config["initial_experimentation_batch"])
     print("X,Y dtypes", X.dtype, Y.dtype)
+    # TODO: to run PCR, need to get utility values
+    # but here we don't use the comparison info
+    # X, Y, util_vals, comps = gen_initial_real_data(
+    #     config["initial_experimentation_batch"], problem, util_func
+    # )
 
     # create dictionary storing the outcome-transforms, the input-transforms,
     # and the covar_module (for PairwiseGP) for each method
@@ -192,6 +192,11 @@ def run_one_trial(
             "input_tf": Normalize(config["outcome_dim"]),
             "covar_module": make_modified_kernel(ard_num_dims=config["outcome_dim"]),
         },
+        "lmc2": {
+            "outcome_tf": Standardize(config["outcome_dim"]),
+            "input_tf": Normalize(config["outcome_dim"]),
+            "covar_module": make_modified_kernel(ard_num_dims=config["outcome_dim"]),
+        },
     }
 
     for method in [
@@ -201,12 +206,15 @@ def run_one_trial(
         "random_subset",
         "lmc"
         # "mtgp",
+        # "lmc2",
+        # "pcr"
     ]:
 
         print(f"=====Running method {method}=====")
 
         lin_proj_latent_dim = 1  # define variable, placeholder
 
+        time_start = time.time()  # log outcome model fitting time
         if method == "mtgp":
             outcome_model = KroneckerMultiTaskGP(
                 X,
@@ -222,10 +230,18 @@ def run_one_trial(
             fit_gpytorch_model(icm_mll)
 
         elif method == "lmc":
+
+            # TODO: check covariance LKJ prior here
+            sd_prior = GammaPrior(1.0, 0.15)
+            eta = 0.5
+            task_covar_prior = LKJCovariancePrior(config["outcome_dim"], eta, sd_prior)
+
             lcm_kernel = LCMKernel(
                 base_kernels=[MaternKernel()] * lin_proj_latent_dim,
+                # TODO: Qing's comment: Here the base kernel is MaternKernel without setting ard_dim and prior. Is this intended?
                 num_tasks=config["outcome_dim"],
-                rank=1,
+                rank=1, # rank is 2 if method is lmc2
+                task_covar_prior=task_covar_prior,
             )
             lcm_likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(
                 num_tasks=config["outcome_dim"]
@@ -243,7 +259,31 @@ def run_one_trial(
             lcm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
             )
-            fit_gpytorch_mll(lcm_mll)
+            # fit_gpytorch_mll(lcm_mll)
+            fit_gpytorch_scipy(lcm_mll, options={"maxls": 30})
+
+        elif method == "pcr":
+            P, S, V = torch.svd(Y)
+            # then run regression from P (PCs) onto util_vals
+            # select top k entries of PC_coeff
+            # retain the corresponding columns in P
+
+            # torch.matmul(torch.transpose(P), P)
+            reg = LinearRegression().fit(np.array(P), np.array(util_vals))
+            dims_to_keep = np.argpartition(reg.coef_, -config["outcome_dim"] // 3)[
+                -config["outcome_dim"] // 3 :
+            ]
+
+            # transform corresponding to dims_to_keep
+            pcr_axes = torch.tensor(torch.transpose(V[:, dims_to_keep], -2, -1))
+            # then plug these into LinearProjection O/I transforms
+            transforms_covar_dict["pcr"] = {
+                "outcome_tf": LinearProjectionOutcomeTransform(pcr_axes),
+                "input_tf": LinearProjectionInputTransform(pcr_axes),
+                "covar_module": make_modified_kernel(
+                    ard_num_dims=config["outcome_dim"] // 3
+                ),
+            }
 
         else:
             outcome_model = fit_outcome_model(
@@ -251,6 +291,8 @@ def run_one_trial(
                 Y,
                 outcome_transform=transforms_covar_dict[method]["outcome_tf"],
             )
+
+        outcome_model_fitting_time = time.time() - time_start
 
         if method == "pca":
 
@@ -306,6 +348,7 @@ def run_one_trial(
         init_train_Y, init_train_comps = generate_random_pref_data(
             problem, outcome_model, n=1, util_func=util_func
         )  # TODO: should we increase n?
+        # outcome_model_cache = copy.deepcopy(outcome_model)  # trying
 
         # Perform preference exploration using either Random-f or EUBO-zeta
         for pe_strategy in ["EUBO-zeta", "Random-f"]:
@@ -314,6 +357,8 @@ def run_one_trial(
 
             print("Running PE strategy " + pe_strategy)
             train_Y, train_comps = init_train_Y.clone(), init_train_comps.clone()
+            # outcome_model = copy.deepcopy(outcome_model_cache)  # trying
+
             # get the true utility of the candidate that maximizes the posterior mean utility
             # this tells us the quality of the candidate we select
             within_result = find_max_posterior_mean(
@@ -328,6 +373,7 @@ def run_one_trial(
                 covar_module=copy.deepcopy(
                     transforms_covar_dict[method]["covar_module"]
                 ),
+                seed = trial_idx
             )
             within_result.update(
                 {"run_id": trial_idx, "pe_strategy": pe_strategy, "method": method}
@@ -350,6 +396,7 @@ def run_one_trial(
                         transforms_covar_dict[method]["covar_module"]
                     ),
                     verbose=verbose,
+                    seed=trial_idx
                 )
                 if verbose:
                     print(
@@ -371,6 +418,7 @@ def run_one_trial(
                         transforms_covar_dict[method]["covar_module"]
                     ),
                     verbose=verbose,
+                    seed=trial_idx,
                 )
                 within_result.update(
                     {
@@ -414,10 +462,10 @@ def run_one_trial(
                     pref_model, problem=problem, util_func=util_func, n_test=N_TEST
                 )
                 print(f"final pref model acc: {pref_model_acc}")
-                sampler = SobolQMCNormalSampler(num_samples=1)
+                sampler = SobolQMCNormalSampler(1)
                 pref_obj = LearnedObjective(pref_model=pref_model, sampler=sampler)
                 exp_cand_X = gen_exp_cand(
-                    outcome_model, pref_obj, problem=problem, q=1, acqf_name="qNEI", X=X
+                    outcome_model, pref_obj, problem=problem, q=1, acqf_name="qNEI", X=X, seed=trial_idx
                 )  # noqa
                 qneiuu_util = util_func(problem.evaluate_true(exp_cand_X)).item()
                 print(
@@ -439,6 +487,7 @@ def run_one_trial(
                 "time_consumed": time_consumed,
                 "outcome_model_mse": outcome_model_mse,
                 "pref_model_acc": pref_model_acc,
+                "outcome_model_fit_time": outcome_model_fitting_time,
             }
             if method == "pca":
                 print("Updating extra recovery diagnostics for PCA")
@@ -486,7 +535,7 @@ def run_one_trial(
     }
     exp_candidate_results.append(exp_result)
 
-    return OneRun(
-        exp_candidate_results=exp_candidate_results,
-        within_session_results=within_session_results,
-    )
+    return {
+        "exp_candidate_results": exp_candidate_results,
+        "within_session_results": within_session_results
+    }

@@ -15,6 +15,33 @@ from gpytorch.constraints import GreaterThan, Interval
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.models.transforms.input import InputTransform
 
+
+
+
+def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
+    r"""
+    Compute the fraction of variance explained with each axis supplied in the axes tensor
+
+    Args:
+        data: `num_datapoints x output_dim` tensor
+        axes: `num_axes x output_dim` tensor where each row is a principal axis
+
+    Returns:
+        var_explained: `1 x num_axes` tensor with i-th entry being the fraction of variance explained by the i-th supplied axis
+    """
+
+    total_var = sum(torch.var(data, dim=0)).item()
+
+    # check if each row of axes is normalized; if not, divide by L2 norm
+    axes = torch.div(axes, torch.linalg.norm(axes, dim=1).unsqueeze(1))
+
+    var_explained = torch.var(
+        torch.matmul(data, axes.transpose(0, 1).to(**tkwargs)), dim=0
+    ).detach()
+    var_explained = var_explained / total_var
+
+    return var_explained
+
 # LCM model class
 class MultitaskGPModel(GPyTorchModel, ExactGP):
     def __init__(
@@ -123,3 +150,34 @@ def make_modified_kernel(ard_num_dims):
     )
 
     return covar_module
+
+
+
+
+# Qing's code for map-saas on the PCs
+
+    if pc_model_type == "map_saas":
+        # Y_transformed: [n x num_axes]
+        Y_transformed, _ = pca_transform(train_Y)
+
+        Xs = [train_X for _ in range(Y_transformed.shape[-1])]
+        Ys = [Y_transformed[:, [i]] for i in range(Y_transformed.shape[-1])]
+        Yvars = [
+            torch.full(Y_transformed[:, [i]].size(), torch.nan, **tkwargs)
+            for i in range(Y_transformed.shape[-1])
+        ]
+
+        model_PC = get_and_fit_map_saas_model(
+            Xs=Xs,
+            Ys=Ys,
+            Yvars=Yvars,
+            task_features=[],
+            fidelity_features=[],
+            metric_names=[],
+        )
+
+        # load state dict if it is passed [Qing: not sure this is used in benchmark]
+        if state_dict is not None:
+            model_PC.load_state_dict(state_dict)
+
+        return model_PC, pca_transform.axes_learned

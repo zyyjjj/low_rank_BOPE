@@ -9,7 +9,6 @@ import torch
 import sys
 sys.path.append('..')
 
-
 from src.lunar_lander import LunarLander
 from low_rank_BOPE.src.saasgp_utils import get_and_fit_map_saas_model
 from low_rank_BOPE.src.pref_learning_helpers import (
@@ -156,6 +155,10 @@ def run_one_trial(
 
     # ======= Experimentation stage =======
     # initial exploration batch
+
+    # TODO: in the saas case the PCA outcome transform goes away
+    # need to plug the modellistGP of PCs into the 
+
 
     X, Y = generate_random_exp_data(problem, config["initial_experimentation_batch"], batch_eval = False)
     print("X,Y dtypes", X.dtype, Y.dtype)
