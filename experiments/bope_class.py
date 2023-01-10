@@ -84,6 +84,7 @@ class BopeExperiment:
         methods,
         pe_strategies,
         trial_idx,
+        save_dir,
         **kwargs
     ) -> None:
         """
@@ -98,7 +99,6 @@ class BopeExperiment:
         # pre-specified experiment metadata
         self.problem = problem
         self.util_func = util_func
-        # TODO: implement this in problem class
         self.outcome_dim = problem.outcome_dim
         self.input_dim = problem.dim
 
@@ -231,7 +231,6 @@ class BopeExperiment:
             lcm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
             )
-            # fit_gpytorch_mll(lcm_mll)
             fit_gpytorch_scipy(lcm_mll, options={"maxls": 30})
 
         elif method == "pcr":
@@ -319,9 +318,6 @@ class BopeExperiment:
         Y,
         comps,
         **model_kwargs
-        # input_transform,
-        # covar_module,
-        # utility_aware
     ):
         util_model = PairwiseGP(datapoints=Y, comparisons=comps, **model_kwargs)
 
@@ -365,7 +361,7 @@ class BopeExperiment:
                 print(
                     "fit_pref_model() failed 3 times, stop current call of run_pref_learn()"
                 )
-                return train_Y, train_comps, None, acqf_vals
+                # return train_Y, train_comps, None, acqf_vals
                 # TODO we don't want to return, just not change the current values
 
             if pe_strategy == "EUBO-zeta":
@@ -561,8 +557,7 @@ class BopeExperiment:
     def run_second_experimentation_stage(self, method):
         for pe_strategy in self.pe_strategies:
             self.generate_final_candidate(method, pe_strategy)
-        pass
-
+        
 
 # ======== BOPE loop ========
 
@@ -581,8 +576,7 @@ class BopeExperiment:
             self.run_PE_stage(method)
             self.run_second_experimentation_stage(method)
 
-        # how to store the outcome / util models for the different methods
-        # maybe have an outcome_model_dict?
+        # TODO: double check this is correct way to save stuff
+        torch.save(self.PE_session_results, self.save_dir + 'PE_session_results_trial='+ self.trial_idx + '.th')
+        torch.save(self.final_candidate_results, self.save_dir + 'final_candidate_results_trial' + self.trial_idx + '.th')
 
-        # TODO: then have a way to store the optimization outcomes
-        # return self.PE_session_results, self.final_candidate_results
