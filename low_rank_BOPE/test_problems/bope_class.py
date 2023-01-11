@@ -270,6 +270,11 @@ class BopeExperiment:
                     ard_num_dims=self.latent_dim
                 ),
             }
+            outcome_model = fit_outcome_model(
+                self.X,
+                self.Y,
+                outcome_transform=self.transforms_covar_dict[method]["outcome_tf"],
+            )
 
         else:
             outcome_model = fit_outcome_model(
@@ -587,6 +592,7 @@ class BopeExperiment:
         )
 
         for method in self.methods:
+            print(f"============= Running {method} =============")
             self.run_first_experimentation_stage(method)
             self.run_PE_stage(method)
             self.run_second_experimentation_stage(method)
