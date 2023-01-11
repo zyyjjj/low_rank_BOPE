@@ -16,8 +16,8 @@ if __name__ == "__main__":
 
     problem_setup_names = [
         "vehiclesafety_5d3d_piecewiselinear_3c",
-        # "carcabdesign_7d9d_piecewiselinear_3c",
-        # "carcabdesign_7d9d_linear_3c",
+        "carcabdesign_7d9d_piecewiselinear_3c",
+        "carcabdesign_7d9d_linear_3c",
     ]
 
     for problem_setup_name in problem_setup_names:
