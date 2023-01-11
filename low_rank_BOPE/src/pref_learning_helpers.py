@@ -23,8 +23,8 @@ from botorch.models.model import Model
 from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
 from botorch.models.transforms.input import InputTransform
 from botorch.optim.optimize import optimize_acqf
-# from botorch.sampling.normal import SobolQMCNormalSampler
-from botorch.sampling.samplers import SobolQMCNormalSampler
+from botorch.sampling.normal import SobolQMCNormalSampler
+# from botorch.sampling.samplers import SobolQMCNormalSampler
 
 from botorch.utils.sampling import draw_sobol_samples
 from gpytorch.likelihoods import Likelihood

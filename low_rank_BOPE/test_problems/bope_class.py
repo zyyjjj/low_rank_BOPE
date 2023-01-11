@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
+import os
 from collections import defaultdict
 import gpytorch
 import numpy as np
+import copy
+import random
 import torch
 
 from gpytorch.kernels import LCMKernel, MaternKernel
@@ -18,11 +21,12 @@ from botorch.models.transforms.input import (
 )
 from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
 from botorch.fit import fit_gpytorch_mll, fit_gpytorch_model
+from botorch.optim.fit import fit_gpytorch_scipy
+from botorch.optim.optimize import optimize_acqf
 from botorch.acquisition.objective import GenericMCObjective, LearnedObjective
 from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 from botorch.models.multitask import KroneckerMultiTaskGP
 from botorch.sampling.normal import SobolQMCNormalSampler
-from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.utils.sampling import draw_sobol_samples
 
 from sklearn.linear_model import LinearRegression
@@ -33,7 +37,7 @@ from low_rank_BOPE.src.pref_learning_helpers import (
     # find_max_posterior_mean, # TODO: later see if we want the error-handled version
     fit_outcome_model,
     # fit_pref_model, # TODO: later see if we want the error-handled version
-    # gen_exp_cand,
+    gen_exp_cand,
     generate_random_exp_data,
     generate_random_pref_data,
     gen_comps,
@@ -57,7 +61,7 @@ class BopeExperiment:
     attr_list = {
         "pca_var_threshold": 0.95,
         "initial_experimentation_batch": 16,
-        "n_check_post_mean": 20,
+        "n_check_post_mean":1, # TODO: reduced just for debugging
         "every_n_comps": 3,
         "verbose": True,
         "dtype": torch.double,
@@ -67,8 +71,8 @@ class BopeExperiment:
         "batch_limit": 4,
         "sampler_num_outcome_samples": 64,
         "maxiter": 1000,
-        "use_PCR": False
-        # maybe num_axes, default to None?
+        "use_PCR": False, # TODO: do we really need to flag this separately?
+        "latent_dim": None,
         "min_stdv": 100000
     }
 
@@ -78,8 +82,9 @@ class BopeExperiment:
         problem,
         util_func,
         methods,
-        PE_strategy,
+        pe_strategies,
         trial_idx,
+        output_path,
         **kwargs
     ) -> None:
         """
@@ -87,18 +92,15 @@ class BopeExperiment:
             problem:
             util_func:
             methods: list of statistical methods, each denoted using a str
-            PE_strategies: PE strategies to use, could be {"EUBO-zeta", "Random-f"}
+            pe_strategies: PE strategies to use, could be {"EUBO-zeta", "Random-f"}
+        one run should handle one problem and >=1 methods and >=1 pe_strategies
         """
-
-        # one run should handle one problem and >=1 methods and >=1 pe_strategies
-
 
         # pre-specified experiment metadata
         self.problem = problem
         self.util_func = util_func
-        # TODO: implement this in problem class
         self.outcome_dim = problem.outcome_dim
-        self.input_dim = problem.dim
+        self.input_dim = problem._bounds.shape[-1]
 
         # self.attr_list stores default values, then overwrite with kwargs
         for key in self.attr_list.keys():
@@ -106,12 +108,27 @@ class BopeExperiment:
         for key in kwargs.keys():
             setattr(self, key, kwargs[key])
 
-        self.methods = methods
+        self.trial_idx = trial_idx
+        self.output_path = output_path
+
         self.pe_strategies = pe_strategies
 
+        if "pca" in methods:
+            # make sure to run pca first, so that the learned latent_dim
+            # informs the other methods with dim reduction 
+            methods.remove("pca")
+            self.methods = ["pca"] + methods
+            print('self.methods, ', self.methods)
+        else:
+            # if "pca" is not run and latent_dim is not specified
+            # must set self.latent_dim by hand
+            self.methods = methods
+            if not self.latent_dim:
+                self.latent_dim = self.outcome_dim // 3
+                
         # logging models and results
-        self.outcome_models_dict = {}
-        self.pref_data_dict = defaultdict(dict)
+        self.outcome_models_dict = {} # by method
+        self.pref_data_dict = defaultdict(dict) # by (method, pe_strategy) 
         self.PE_session_results = defaultdict(dict)
         self.final_candidate_results = defaultdict(dict)
 
@@ -129,9 +146,9 @@ class BopeExperiment:
                             self.outcome_dim,
                             min_stdv=self.min_stdv,
                         ),
-                        # "pca": PCAOutcomeTransform(num_axes=config["lin_proj_latent_dim"]),
                         "pca": PCAOutcomeTransform(
-                            variance_explained_threshold=self.pca_var_threshold
+                            variance_explained_threshold=self.pca_var_threshold,
+                            num_axes = self.latent_dim,
                         ),
                     }
                 ),
@@ -153,7 +170,7 @@ class BopeExperiment:
             },
         }
 
-        # TODO: error handling
+        # TODO: error handling -- maybe not needed
         self.passed = False
         self.fit_count = 0
 
@@ -207,7 +224,7 @@ class BopeExperiment:
             task_covar_prior = LKJCovariancePrior(self.outcome_dim, eta, sd_prior)
 
             lcm_kernel = LCMKernel(
-                base_kernels=[MaternKernel()] * self.lin_proj_latent_dim,
+                base_kernels=[MaternKernel()] * self.latent_dim,
                 # TODO: Qing's comment: Here the base kernel is MaternKernel without setting ard_dim and prior. Is this intended?
                 num_tasks=self.outcome_dim,
                 rank=1, # rank is 2 if method is lmc2
@@ -225,11 +242,10 @@ class BopeExperiment:
                 outcome_transform=copy.deepcopy(
                     self.transforms_covar_dict[method]["outcome_tf"]
                 ),
-            ).to(**tkwargs)
+            ).to(self.dtype)
             lcm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
             )
-            # fit_gpytorch_mll(lcm_mll)
             fit_gpytorch_scipy(lcm_mll, options={"maxls": 30})
 
         elif method == "pcr":
@@ -240,8 +256,8 @@ class BopeExperiment:
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
             # select top k entries of PC_coeff
             # TODO: check abs() correctness
-            dims_to_keep = np.argpartition(np.abs(reg.coef_), -config["outcome_dim"] // 3)[
-                -config["outcome_dim"] // 3 :    # TODO: update
+            dims_to_keep = np.argpartition(np.abs(reg.coef_), -self.latent_dim)[
+                -self.latent_dim :  
             ]
 
             # transform corresponding to dims_to_keep
@@ -251,7 +267,7 @@ class BopeExperiment:
                 "outcome_tf": LinearProjectionOutcomeTransform(self.pcr_axes),
                 "input_tf": LinearProjectionInputTransform(self.pcr_axes),
                 "covar_module": make_modified_kernel(
-                    ard_num_dims=config["outcome_dim"] // 3 # TODO: update
+                    ard_num_dims=self.latent_dim
                 ),
             }
 
@@ -270,43 +286,43 @@ class BopeExperiment:
                     **{
                         # "standardize": InputStandardize(config["outcome_dim"]),
                         # TODO: was trying standardize again
-                        "center": InputCenter(config["outcome_dim"]),
+                        "center": InputCenter(self.outcome_dim),
                         "pca": PCAInputTransform(axes=self.pca_axes),
                     }
                 )
 
-                self.lin_proj_latent_dim = self.pca_axes.shape[0]
+                self.latent_dim = self.pca_axes.shape[0]
 
                 print(
-                    f"amount of variance explained by {self.lin_proj_latent_dim} axes: {outcome_model.outcome_transform['pca'].PCA_explained_variance}"
+                    f"amount of variance explained by {self.latent_dim} axes: {outcome_model.outcome_transform['pca'].PCA_explained_variance}"
                 )
 
                 # here we first see how many latent dimensions PCA learn
                 # then we create a random linear projection mapping to the same dimensionality
 
-                transforms_covar_dict["pca"]["covar_module"] = make_modified_kernel(
-                    ard_num_dims=self.lin_proj_latent_dim
+                self.transforms_covar_dict["pca"]["covar_module"] = make_modified_kernel(
+                    ard_num_dims=self.latent_dim
                 )
 
                 random_proj = generate_random_projection(
-                    self.outcome_dim, self.lin_proj_latent_dim, **tkwargs
+                    self.outcome_dim, self.latent_dim, dtype = self.dtype
                 )
-                transforms_covar_dict["random_linear_proj"] = {
+                self.transforms_covar_dict["random_linear_proj"] = {
                     "outcome_tf": LinearProjectionOutcomeTransform(random_proj),
                     "input_tf": LinearProjectionInputTransform(random_proj),
-                    "covar_module": make_modified_kernel(ard_num_dims=self.lin_proj_latent_dim),
+                    "covar_module": make_modified_kernel(ard_num_dims=self.latent_dim),
                 }
                 random_subset = random.sample(
-                    range(self.outcome_dim), self.lin_proj_latent_dim
+                    range(self.outcome_dim), self.latent_dim
                 )
-                transforms_covar_dict["random_subset"] = {
+                self.transforms_covar_dict["random_subset"] = {
                     "outcome_tf": SubsetOutcomeTransform(
                         outcome_dim=self.outcome_dim, subset=random_subset
                     ),
                     "input_tf": FilterFeatures(
                         feature_indices=torch.Tensor(random_subset).to(int)
                     ),
-                    "covar_module": make_modified_kernel(ard_num_dims=self.lin_proj_latent_dim),
+                    "covar_module": make_modified_kernel(ard_num_dims=self.latent_dim),
                 }
 
         self.outcome_models_dict[method] = outcome_model
@@ -317,9 +333,6 @@ class BopeExperiment:
         Y,
         comps,
         **model_kwargs
-        # input_transform,
-        # covar_module,
-        # utility_aware
     ):
         util_model = PairwiseGP(datapoints=Y, comparisons=comps, **model_kwargs)
 
@@ -336,8 +349,7 @@ class BopeExperiment:
 
             train_Y, train_comps = self.pref_data_dict[method][pe_strategy]
 
-            if verbose:
-                print(f"Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
+            print(f"Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
 
             fit_model_succeed = False
             pref_model_acc = None
@@ -364,13 +376,13 @@ class BopeExperiment:
                 print(
                     "fit_pref_model() failed 3 times, stop current call of run_pref_learn()"
                 )
-                return train_Y, train_comps, None, acqf_vals
+                # return train_Y, train_comps, None, acqf_vals
                 # TODO we don't want to return, just not change the current values
 
             if pe_strategy == "EUBO-zeta":
                 # EUBO-zeta
                 one_sample_outcome_model = ModifiedFixedSingleSampleModel(
-                    model=self.outcome_model_dict[method],
+                    model=self.outcome_models_dict[method],
                     outcome_dim=train_Y.shape[-1]
                 )
                 acqf = AnalyticExpectedUtilityOfBestOption(
@@ -404,8 +416,12 @@ class BopeExperiment:
 
             elif pe_strategy == "Random-f":
                 # Random-f
-                cand_X = generate_random_inputs(self.problem, n=2)
-                cand_Y = self.outcome_model_dict[method].posterior(cand_X).rsample().squeeze(0).detach()
+                cand_X = draw_sobol_samples(
+                    bounds=self.problem.bounds, 
+                    n=1, 
+                    q=2,
+                ).squeeze(0).to(torch.double)
+                cand_Y = self.outcome_models_dict[method].posterior(cand_X).rsample().squeeze(0).detach()
             else:
                 raise RuntimeError("Unknown preference exploration strategy!")
 
@@ -440,7 +456,7 @@ class BopeExperiment:
 
         # find experimental candidate(s) that maximize the posterior mean utility
         post_mean_cand_X = gen_exp_cand(
-            outcome_model=self.outcome_model_dict[method],
+            outcome_model=self.outcome_models_dict[method],
             objective=pref_obj,
             problem=self.problem,
             q=1,
@@ -449,8 +465,7 @@ class BopeExperiment:
         )
 
         post_mean_util = self.util_func(self.problem.evaluate_true(post_mean_cand_X)).item()
-        if verbose:
-            print(f"True utility of posterior mean utility maximizer: {post_mean_util:.3f}")
+        print(f"True utility of posterior mean utility maximizer: {post_mean_util:.3f}")
 
         within_result = {
             "n_comps": train_comps.shape[0],
@@ -478,7 +493,7 @@ class BopeExperiment:
 
         # find experimental candidate(s) that maximize the posterior mean utility
         cand_X = gen_exp_cand(
-            outcome_model=self.outcome_model_dict[method],
+            outcome_model=self.outcome_models_dict[method],
             objective=pref_obj,
             problem=self.problem,
             q=1,
@@ -493,7 +508,7 @@ class BopeExperiment:
         )
 
         exp_result = {
-            "candidate": exp_cand_X,
+            "candidate": cand_X,
             "candidate_util": qneiuu_util,
             "method": method,
             "strategy": pe_strategy,
@@ -539,7 +554,7 @@ class BopeExperiment:
 
     def run_PE_stage(self, method):
         # initial result stored in self.pref_data_dict
-        self.generate_random_pref_data(method, n)
+        self.generate_random_pref_data(method, n=1)
 
         for pe_strategy in self.pe_strategies:
 
@@ -557,8 +572,7 @@ class BopeExperiment:
     def run_second_experimentation_stage(self, method):
         for pe_strategy in self.pe_strategies:
             self.generate_final_candidate(method, pe_strategy)
-        pass
-
+        
 
 # ======== BOPE loop ========
 
@@ -577,8 +591,9 @@ class BopeExperiment:
             self.run_PE_stage(method)
             self.run_second_experimentation_stage(method)
 
-        # how to store the outcome / util models for the different methods
-        # maybe have an outcome_model_dict?
+        # TODO: double check this is correct way to save stuff
+        if not os.path.exists(self.output_path):
+            os.makedirs(self.output_path)
+        torch.save(self.PE_session_results, self.output_path + 'PE_session_results_trial='+ str(self.trial_idx) + '.th')
+        torch.save(self.final_candidate_results, self.output_path + 'final_candidate_results_trial' + str(self.trial_idx) + '.th')
 
-        # TODO: then have a way to store the optimization outcomes
-        # return self.PE_session_results, self.final_candidate_results

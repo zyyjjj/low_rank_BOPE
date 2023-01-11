@@ -659,7 +659,7 @@ def problem_setup(problem_str, noisy=False, **tkwargs):
 
 class AugmentedProblem(MultiObjectiveTestProblem):
     def __init__(
-        self, problem, noise, augmented_dim=None, duplicate=False, n_duplicates=None
+        self, problem, noise, augmented_dim = None, duplicate=False, n_duplicates=None
     ):
 
         self._bounds = problem.bounds
@@ -668,11 +668,14 @@ class AugmentedProblem(MultiObjectiveTestProblem):
         super().__init__()
         self.base_problem = problem
         self.base_outcome_dim = problem.num_objectives
-        self.augmented_dim = augmented_dim
         self.noise = noise
         self.bounds = problem.bounds
         self.duplicate = duplicate
         self.n_duplicates = n_duplicates
+        if self.duplicate:
+            self.outcome_dim = self.base_outcome_dim * self.n_duplicates
+        else:
+            self.outcome_dim = augmented_dim
 
     def evaluate_true(self, X):
         if not self.duplicate:
@@ -680,7 +683,7 @@ class AugmentedProblem(MultiObjectiveTestProblem):
                 (
                     self.base_problem.evaluate_true(X),
                     torch.randn(
-                        (X.shape[0], int(self.augmented_dim - self.base_outcome_dim))
+                        (X.shape[0], int(self.outcome_dim - self.base_outcome_dim))
                     )
                     * self.noise,
                 ),
@@ -897,12 +900,13 @@ def problem_setup_augmented(problem_str, augmented_dims_noise, noisy=False, **tk
     augmented_problem = AugmentedProblem(
         problem=problem,
         noise=augmented_dims_noise,
-        augmented_dim=augmented_dim,
+        augmented_dim = augmented_dim,
         duplicate=duplicate,
         n_duplicates=n_duplicates,
     )
     if duplicate:
         augmented_dim = augmented_problem.base_outcome_dim * n_duplicates
+    # whether duplicate or not, augmented_dim = augmented_problem.outcome_dim
     if util_type == "linear":
         if not duplicate:
             beta = torch.cat((beta, torch.zeros(augmented_dim - Y_dim))).to(**tkwargs)
