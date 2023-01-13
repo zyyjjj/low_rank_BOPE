@@ -3,16 +3,16 @@ file_dir = os.path.dirname(__file__)
 sys.path.append(file_dir)
 sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
-# sys.path.append('home/yz685/low_rank_BOPE')
-# from bope_class import BopeExperiment
 from low_rank_BOPE.test_problems.bope_class import BopeExperiment
-from low_rank_BOPE.test_problems.car_problems import problem_setup_augmented
+from low_rank_BOPE.test_problems.portfolio_opt_surrogate import PortfolioSurrogate
 
 
 if __name__ == "__main__":
 
     # experiment-running params -- read from command line input
     trial_idx = int(sys.argv[1])
+
+    # TODO: modify below to run portfolio problem
 
     problem_setup_names = [
         "vehiclesafety_5d3d_piecewiselinear_3c",
@@ -39,3 +39,6 @@ if __name__ == "__main__":
             output_path = "/home/yz685/low_rank_BOPE/experiments/"+problem_setup_name+"/"
         )
         experiment.run_BOPE_loop()
+
+    # TODO: can I replace absolute path with script directory, like
+    # script_dir = os.path.dirname(os.path.abspath(__file__))
