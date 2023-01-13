@@ -2,6 +2,7 @@
 
 import os
 from collections import defaultdict
+from typing import List
 import gpytorch
 import numpy as np
 import copy
@@ -71,7 +72,6 @@ class BopeExperiment:
         "batch_limit": 4,
         "sampler_num_outcome_samples": 64,
         "maxiter": 1000,
-        "use_PCR": False, # TODO: do we really need to flag this separately?
         "latent_dim": None,
         "min_stdv": 100000
     }
@@ -79,12 +79,12 @@ class BopeExperiment:
 
     def __init__(
         self,
-        problem,
-        util_func,
-        methods,
-        pe_strategies,
-        trial_idx,
-        output_path,
+        problem: torch.nn.Module,
+        util_func: torch.nn.Module,
+        methods: List[str],
+        pe_strategies: List[str],
+        trial_idx: int,
+        output_path: str,
         **kwargs
     ) -> None:
         """
