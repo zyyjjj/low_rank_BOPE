@@ -19,10 +19,9 @@ import os
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+
 def generate_w_samples(
-    bounds = torch.Tensor([[0,0], [1,1]]), 
-    n = 50, 
-    distribution = 'uniform'
+    bounds=torch.Tensor([[0, 0], [1, 1]]), n=50, distribution="uniform"
 ):
     """
     Generate `n` samples of environmental variables from uniform distributions.
@@ -31,14 +30,15 @@ def generate_w_samples(
     n: number of samples we want to generate
     """
 
-    if distribution == 'uniform':
+    if distribution == "uniform":
         return torch.rand(n, bounds.shape[-1])
     # TODO later: enable other distributions for w
 
-    
+
 # store w_samples in dict
 w_samples_dict = {}
-w_samples_dict['uniform'] = generate_w_samples()
+w_samples_dict["uniform"] = generate_w_samples()
+
 
 class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     r"""
@@ -55,14 +55,15 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     _bounds = [(0, 1) for _ in range(3)]
 
     def __init__(
-        self, noise_std: Optional[float] = None, 
+        self,
+        noise_std: Optional[float] = None,
         negate: bool = False,
-        w_distribution: str = 'uniform' 
+        w_distribution: str = "uniform",
     ) -> None:
         super().__init__(noise_std=noise_std, negate=negate)
         self.model = None
         self.w_samples = w_samples_dict[w_distribution]
-    
+
     def evaluate_true_one_design(self, x: Tensor) -> Tensor:
         """
         Evaluates the expected return of one design,
@@ -73,14 +74,13 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
             with torch.no_grad(), gpytorch.settings.max_cg_iterations(10000):
                 # broadcast x to concatenate with all the w samples
                 x_w = torch.cat(
-                    (x.repeat(self.w_samples.shape[0], 1), self.w_samples),
-                    dim = 1
+                    (x.repeat(self.w_samples.shape[0], 1), self.w_samples), dim=1
                 )
                 posterior_mean = self.model.posterior(
                     x_w.to(dtype=torch.float32, device="cpu")
                 ).mean.to(x)
                 # return torch.mean(posterior_mean, dim = 0)
-                return torch.transpose(posterior_mean,-2,-1)
+                return torch.transpose(posterior_mean, -2, -1)
         self.fit_model()
         return self.evaluate_true_one_design(x)
 
@@ -92,10 +92,10 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
         results = torch.Tensor()
 
         for x in X:
-            results = torch.cat((results, self.evaluate_true_one_design(x)), dim = 0)
-        
+            results = torch.cat(
+                (results, self.evaluate_true_one_design(x)), dim=0)
+
         return results
-        
 
     def fit_model(self):
         """
@@ -105,7 +105,8 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
         # read the data
         data_list = list()
         for i in range(1, 31):
-            data_file = os.path.join(script_dir, "port_evals", "port_n=100_seed=%d" % i)
+            data_file = os.path.join(
+                script_dir, "port_evals", "port_n=100_seed=%d" % i)
             data_list.append(torch.load(data_file))
 
         # join the data together
@@ -134,10 +135,12 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
             state_dict = torch.load(
                 os.path.join(script_dir, "portfolio_surrogate_state_dict.pt")
             )
-            model = SingleTaskGP(X, Y, likelihood, outcome_transform=Standardize(m=1))
+            model = SingleTaskGP(
+                X, Y, likelihood, outcome_transform=Standardize(m=1))
             model.load_state_dict(state_dict)
         except FileNotFoundError:
-            model = SingleTaskGP(X, Y, likelihood, outcome_transform=Standardize(m=1))
+            model = SingleTaskGP(
+                X, Y, likelihood, outcome_transform=Standardize(m=1))
             mll = ExactMarginalLogLikelihood(model.likelihood, model)
             from time import time
 
@@ -155,24 +158,25 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
 # I know we said we want data from multiple time periods to constitute the high-dim outcome
 # but what if we treat the outcomes from different w's as a high-dim outcome?
 
+
 class RiskMeasureUtil(torch.nn.Module):
     def __init__(self, util_func_key: str, **kwargs):
         super().__init__()
         self.util_func_key = util_func_key
         self.kwargs = dict(**kwargs)
 
-
     def forward(self, Y: Tensor):
-        if self.util_func_key == 'mean_plus_sd':
+        if self.util_func_key == "mean_plus_sd":
 
-            lambdaa = self.kwargs.get('lambdaa', 0.5)
-            return torch.mean(Y, dim = 1) + lambdaa * torch.std(Y, dim = 1)
-                        
-        elif self.util_func_key == '':
+            lambdaa = self.kwargs.get("lambdaa", 0.5)
+            return torch.mean(Y, dim=1) + lambdaa * torch.std(Y, dim=1)
+
+        elif self.util_func_key == "":
             pass
 
 
 # Sait's original code
+
 
 class PortfolioSurrogate(SyntheticTestFunction):
     r"""
@@ -207,7 +211,8 @@ class PortfolioSurrogate(SyntheticTestFunction):
         # read the data
         data_list = list()
         for i in range(1, 31):
-            data_file = os.path.join(script_dir, "port_evals", "port_n=100_seed=%d" % i)
+            data_file = os.path.join(
+                script_dir, "port_evals", "port_n=100_seed=%d" % i)
             data_list.append(torch.load(data_file))
 
         # join the data together
@@ -236,10 +241,12 @@ class PortfolioSurrogate(SyntheticTestFunction):
             state_dict = torch.load(
                 os.path.join(script_dir, "portfolio_surrogate_state_dict.pt")
             )
-            model = SingleTaskGP(X, Y, likelihood, outcome_transform=Standardize(m=1))
+            model = SingleTaskGP(
+                X, Y, likelihood, outcome_transform=Standardize(m=1))
             model.load_state_dict(state_dict)
         except FileNotFoundError:
-            model = SingleTaskGP(X, Y, likelihood, outcome_transform=Standardize(m=1))
+            model = SingleTaskGP(
+                X, Y, likelihood, outcome_transform=Standardize(m=1))
             mll = ExactMarginalLogLikelihood(model.likelihood, model)
             from time import time
 
@@ -251,4 +258,3 @@ class PortfolioSurrogate(SyntheticTestFunction):
                 os.path.join(script_dir, "portfolio_surrogate_state_dict.pt"),
             )
         self.model = model
-
