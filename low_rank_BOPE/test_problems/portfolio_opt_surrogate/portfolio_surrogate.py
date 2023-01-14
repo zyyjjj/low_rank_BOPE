@@ -33,7 +33,7 @@ def generate_w_samples(
 
     if distribution == 'uniform':
         return torch.rand(n, bounds.shape[-1])
-    # TODO: enable other distributions for w
+    # TODO later: enable other distributions for w
 
     
 # store w_samples in dict
@@ -79,7 +79,8 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
                 posterior_mean = self.model.posterior(
                     x_w.to(dtype=torch.float32, device="cpu")
                 ).mean.to(x)
-                return torch.mean(posterior_mean, dim = 0)
+                # return torch.mean(posterior_mean, dim = 0)
+                return torch.transpose(posterior_mean,-2,-1)
         self.fit_model()
         return self.evaluate_true_one_design(x)
 
@@ -150,16 +151,28 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
         self.model = model
 
 
-
 # next TODO: utility function
 # I know we said we want data from multiple time periods to constitute the high-dim outcome
 # but what if we treat the outcomes from different w's as a high-dim outcome?
 
+class RiskMeasureUtil(torch.nn.Module):
+    def __init__(self, util_func_key: str, **kwargs):
+        super().__init__()
+        self.util_func_key = util_func_key
+        self.kwargs = dict(**kwargs)
+
+
+    def forward(self, Y: Tensor):
+        if self.util_func_key == 'mean_plus_sd':
+
+            lambdaa = self.kwargs.get('lambdaa', 0.5)
+            return torch.mean(Y, dim = 1) + lambdaa * torch.std(Y, dim = 1)
+                        
+        elif self.util_func_key == '':
+            pass
 
 
 # Sait's original code
-
-
 
 class PortfolioSurrogate(SyntheticTestFunction):
     r"""
