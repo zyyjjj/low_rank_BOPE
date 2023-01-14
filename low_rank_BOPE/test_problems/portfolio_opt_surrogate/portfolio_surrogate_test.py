@@ -1,6 +1,6 @@
 import torch
 from botorch.utils.sampling import draw_sobol_samples
-from portfolio_surrogate import DistributionalPortfolioSurrogate, utility_risk_measures
+from portfolio_surrogate import DistributionalPortfolioSurrogate, RiskMeasureUtil
 
 
 simulator = DistributionalPortfolioSurrogate()
@@ -32,6 +32,8 @@ explained_variance = S_squared / S_squared.sum()
 
 print('explained variance', explained_variance)
 
-util_vals = utility_risk_measures(Y, util_func_key='mean_plus_sd')
+util_func = RiskMeasureUtil(util_func_key='mean_plus_sd', lambdaa=0.8)
+
+util_vals = util_func(Y)
 print('Y', Y)
 print('util_vals', util_vals)
