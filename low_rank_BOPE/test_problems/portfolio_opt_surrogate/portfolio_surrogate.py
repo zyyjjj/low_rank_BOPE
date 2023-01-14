@@ -1,5 +1,6 @@
 """
 This is a surrogate of the portfolio simulator, based on 3k samples found in port_evals.
+credit to https://github.com/saitcakmak/BoRisk/blob/master/BoRisk/test_functions/portfolio_surrogate.py 
 """
 import math
 from typing import Optional
@@ -106,26 +107,26 @@ class PortfolioSurrogate(SyntheticTestFunction):
 
 # have a problem that just takes in 3-dim x,
 
-def generate_w_samples(distribution, bounds, n):
+def generate_w_samples(
+    bounds = torch.Tensor([[0,0], [1,1]]), 
+    n = 50, 
+    distribution = 'uniform'
+):
     """
-    Generate `n` samples of environmental variables.
-    distribution: dict specifying the distribution and kwargs of two env vars
+    Generate `n` samples of environmental variables from uniform distributions.
+    (Later, can explore more complicated or data-driven distributions.)
     bounds: tensor
     n: number of samples we want to generate
     """
 
-    # TODO
-    # or maybe have a few keys specifying the distribution
+    if distribution == 'uniform':
+        return torch.rand(n, bounds.shape[-1])
+    # TODO: enable other distributions for w
 
-    pass
     
 # store w_samples in dict
 w_samples_dict = {}
-
-# then pass these w samples as w_samples to DistributionalPortfolioSurrogate
-
-
-
+w_samples_dict['uniform'] = generate_w_samples()
 
 class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     r"""
@@ -134,9 +135,7 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     Outputs statistics of the distribution of one design over the
         distribution of the environmental variables.
     """
-    # The original set of random points
-    # TODO: or maybe I should just specify a set of w_samples
-    w_samples = None
+
     # Corresponding weights
     weights = None
     _optimizers = None
@@ -146,28 +145,44 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     def __init__(
         self, noise_std: Optional[float] = None, 
         negate: bool = False,
-        w_distribution: str = 'Unif' # TODO: update
+        w_distribution: str = 'uniform' 
     ) -> None:
         super().__init__(noise_std=noise_std, negate=negate)
         self.model = None
-        # TODO
         self.w_samples = w_samples_dict[w_distribution]
+    
+    def evaluate_true_one_design(self, x: Tensor) -> Tensor:
+        """
+        Evaluates the expected return of one design,
+        over the distribution of environmental variables w.
+        x: one design, shape 1x3
+        """
+        if self.model is not None:
+            with torch.no_grad(), gpytorch.settings.max_cg_iterations(10000):
+                # broadcast x to concatenate with all the w samples
+                x_w = torch.cat(
+                    (x.repeat(self.w_samples.shape[0], 1), self.w_samples),
+                    dim = 1
+                )
+                posterior_mean = self.model.posterior(
+                    x_w.to(dtype=torch.float32, device="cpu")
+                ).mean.to(x)
+                return torch.mean(posterior_mean, dim = 0)
+        self.fit_model()
+        return self.evaluate_true_one_design(x)
 
     def evaluate_true(self, X: Tensor) -> Tensor:
         """
         X: tensor of designs to evaluate; X.shape[-1]=3
-        TODO
-        loop over the w samples, concatenate with 3-dim X
-        then compute the posterior mean of (X, w)
-        or maybe should compute the Cartesian product between X and w_samples
         """
-        if self.model is not None:
-            with torch.no_grad(), gpytorch.settings.max_cg_iterations(10000):
-                return self.model.posterior(
-                    X.to(dtype=torch.float32, device="cpu")
-                ).mean.to(X)
-        self.fit_model()
-        return self.evaluate_true(X)
+
+        results = torch.Tensor()
+
+        for x in X:
+            results = torch.cat((results, self.evaluate_true_one_design(x)), dim = 0)
+        
+        return results
+        
 
     def fit_model(self):
         """
@@ -221,3 +236,10 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
                 os.path.join(script_dir, "portfolio_surrogate_state_dict.pt"),
             )
         self.model = model
+
+
+
+# next TODO: utility function
+# I know we said we want data from multiple time periods to constitute the high-dim outcome
+# but what if we treat the outcomes from different w's as a high-dim outcome?
+
