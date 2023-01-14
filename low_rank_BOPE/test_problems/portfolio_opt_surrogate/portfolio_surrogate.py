@@ -52,7 +52,7 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     weights = None
     _optimizers = None
     dim = 3
-    _bounds = [(0, 1) for _ in range(3)]
+    _bounds = torch.tensor([[0, 1], [0, 1], [0, 1]])
 
     def __init__(
         self,
@@ -63,6 +63,8 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
         super().__init__(noise_std=noise_std, negate=negate)
         self.model = None
         self.w_samples = w_samples_dict[w_distribution]
+        self.outcome_dim = self.w_samples.shape[0]
+        print('self.w_samples.shape', self.w_samples.shape)
 
     def evaluate_true_one_design(self, x: Tensor) -> Tensor:
         """
@@ -77,7 +79,7 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
                     (x.repeat(self.w_samples.shape[0], 1), self.w_samples), dim=1
                 )
                 posterior_mean = self.model.posterior(
-                    x_w.to(dtype=torch.float32, device="cpu")
+                    x_w.to(dtype=torch.double, device="cpu")
                 ).mean.to(x)
                 # return torch.mean(posterior_mean, dim = 0)
                 return torch.transpose(posterior_mean, -2, -1)
@@ -90,7 +92,6 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
         """
 
         results = torch.Tensor()
-
         for x in X:
             results = torch.cat(
                 (results, self.evaluate_true_one_design(x)), dim=0)
@@ -152,6 +153,7 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
                 os.path.join(script_dir, "portfolio_surrogate_state_dict.pt"),
             )
         self.model = model
+        self.model.to(torch.double)
 
 
 # next TODO: utility function
