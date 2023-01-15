@@ -8,7 +8,7 @@ from low_rank_BOPE.test_problems.portfolio_opt_surrogate.portfolio_surrogate imp
     DistributionalPortfolioSurrogate,
     RiskMeasureUtil,
 )
-from low_rank_BOPE.test_problems.bope_class import BopeExperiment
+from low_rank_BOPE.bope_class import BopeExperiment
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ file_dir = os.path.dirname(__file__)
 sys.path.append(file_dir)
 sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
-from low_rank_BOPE.test_problems.bope_class import BopeExperiment
+from low_rank_BOPE.bope_class import BopeExperiment
 from low_rank_BOPE.test_problems.car_problems import problem_setup_augmented
 
 
