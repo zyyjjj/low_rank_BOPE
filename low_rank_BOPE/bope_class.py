@@ -245,8 +245,8 @@ class BopeExperiment:
 
         elif method == "pcr":
             P, S, V = torch.svd(self.Y)
-            # then run regression from P (PCs) onto util_vals
             
+            # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
             
             # select top k entries of PC_coeff
