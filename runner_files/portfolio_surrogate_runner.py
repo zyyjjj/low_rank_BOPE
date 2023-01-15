@@ -22,7 +22,8 @@ if __name__ == "__main__":
     output_path = os.path.join(
         os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "experiments",
-        problem_name
+        problem_name,
+        "/"
     )
 
     experiment = BopeExperiment(
