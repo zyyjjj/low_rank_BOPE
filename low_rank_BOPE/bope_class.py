@@ -245,7 +245,7 @@ class BopeExperiment:
 
         elif method == "pcr":
             P, S, V = torch.svd(self.Y)
-            
+
             # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
             
@@ -442,7 +442,6 @@ class BopeExperiment:
         # TODO: understand whether we should increase num_pref_samples from 1!
 
         train_Y, train_comps = self.pref_data_dict[method][pe_strategy]
-        # seed = self.trial_idx
 
         within_result = {}
 
@@ -523,7 +522,6 @@ class BopeExperiment:
 
         # TODO: later log PCA and PCR subspace recovery diagnostics
 
-        # TODO: doublecheck
         self.final_candidate_results[method][pe_strategy] = exp_result
 
     def generate_random_pref_data(self, method, n):
@@ -596,7 +594,6 @@ class BopeExperiment:
             self.run_PE_stage(method)
             self.run_second_experimentation_stage(method)
 
-        # TODO: double check this is correct way to save stuff
         if not os.path.exists(self.output_path):
             os.makedirs(self.output_path)
         torch.save(self.PE_session_results, self.output_path +
