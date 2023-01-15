@@ -61,7 +61,7 @@ class BopeExperiment:
     attr_list = {
         "pca_var_threshold": 0.95,
         "initial_experimentation_batch": 16,
-        "n_check_post_mean": 13,
+        "n_check_post_mean": 1, # TODO: change back
         "every_n_comps": 3,
         "verbose": True,
         "dtype": torch.double,
@@ -246,18 +246,18 @@ class BopeExperiment:
         elif method == "pcr":
             P, S, V = torch.svd(self.Y)
             # then run regression from P (PCs) onto util_vals
-            # retain the corresponding columns in P
-
+            
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
+            
             # select top k entries of PC_coeff
-            # TODO: check abs() correctness
             dims_to_keep = np.argpartition(np.abs(reg.coef_), -self.latent_dim)[
                 -self.latent_dim:
             ]
 
-            # transform corresponding to dims_to_keep
+            # retain the corresponding columns in V
             self.pcr_axes = torch.tensor(
                 torch.transpose(V[:, dims_to_keep], -2, -1))
+            
             # then plug these into LinearProjection O/I transforms
             self.transforms_covar_dict["pcr"] = {
                 "outcome_tf": LinearProjectionOutcomeTransform(self.pcr_axes),
@@ -378,8 +378,6 @@ class BopeExperiment:
                 print(
                     "fit_pref_model() failed 3 times, stop current call of run_pref_learn()"
                 )
-                # return train_Y, train_comps, None, acqf_vals
-                # TODO we don't want to return, just not change the current values
 
             if pe_strategy == "EUBO-zeta":
                 # EUBO-zeta
@@ -523,7 +521,7 @@ class BopeExperiment:
             # "outcome_model_fit_time": outcome_model_fitting_time,
         }
 
-        # TODO: later log PCA subspace recovery diagnostics
+        # TODO: later log PCA and PCR subspace recovery diagnostics
 
         # TODO: doublecheck
         self.final_candidate_results[method][pe_strategy] = exp_result
