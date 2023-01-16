@@ -1,11 +1,20 @@
-import torch
-from typing import Dict, Optional
-
-import gpytorch
-import sys
-sys.path.append('..')
-
-
+from torch import Tensor
+from gpytorch.priors.torch_priors import GammaPrior
+from gpytorch.priors import SmoothedBoxPrior
+from gpytorch.models import ExactGP
+from gpytorch.likelihoods import Likelihood
+from gpytorch.kernels import Kernel, LCMKernel, MaternKernel, RBFKernel, ScaleKernel
+from gpytorch.constraints import GreaterThan, Interval
+from gpytorch import ExactMarginalLogLikelihood
+from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.optim import optimize_acqf
+from botorch.models.transforms.outcome import OutcomeTransform
+from botorch.models.transforms.input import InputTransform
+from botorch.models.model import Model
+from botorch.models.gpytorch import GPyTorchModel
+from botorch.fit import fit_gpytorch_model
+from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
+from botorch.acquisition import LearnedObjective
 from low_rank_BOPE.src.pref_learning_helpers import (
     check_pref_model_fit,
     fit_pref_model,
@@ -14,23 +23,12 @@ from low_rank_BOPE.src.pref_learning_helpers import (
     generate_random_inputs,
     ModifiedFixedSingleSampleModel,
 )
-from botorch.acquisition import LearnedObjective
-from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
-from botorch.fit import fit_gpytorch_model
-from botorch.models.gpytorch import GPyTorchModel
-from botorch.models.model import Model
-from botorch.models.transforms.input import InputTransform
-from botorch.models.transforms.outcome import OutcomeTransform
-from botorch.optim import optimize_acqf
-from botorch.sampling.samplers import SobolQMCNormalSampler
-from gpytorch import ExactMarginalLogLikelihood
-from gpytorch.constraints import GreaterThan, Interval
-from gpytorch.kernels import Kernel, LCMKernel, MaternKernel, RBFKernel, ScaleKernel
-from gpytorch.likelihoods import Likelihood
-from gpytorch.models import ExactGP
-from gpytorch.priors import SmoothedBoxPrior
-from gpytorch.priors.torch_priors import GammaPrior
-from torch import Tensor
+import torch
+from typing import Dict, Optional
+
+import gpytorch
+import sys
+sys.path.append('..')
 
 
 def subspace_recovery_error(
@@ -63,7 +61,8 @@ def subspace_recovery_error(
 
     # I-VV^T, projection onto orthogonal space of V, shape is outcome_dim x outcome_dim
     orth_proj = (
-        torch.eye(outcome_dim) - torch.transpose(axes_learned, -2, -1) @ axes_learned
+        torch.eye(outcome_dim) -
+        torch.transpose(axes_learned, -2, -1) @ axes_learned
     )
 
     # (I-VV^T)A
@@ -73,7 +72,8 @@ def subspace_recovery_error(
     true_subspace_lost_frobenius_norm = torch.linalg.norm(true_subspace_lost)
 
     # ||A||^2 = latent_dim
-    frac_squared_norm = torch.square(true_subspace_lost_frobenius_norm) / latent_dim
+    frac_squared_norm = torch.square(
+        true_subspace_lost_frobenius_norm) / latent_dim
 
     return frac_squared_norm.item()
 
@@ -102,7 +102,8 @@ def empirical_max_outcome_error(Y: Tensor, axes_learned: Tensor) -> float:
 
     # I-VV^T, projection onto orthogonal space of V, shape is outcome_dim x outcome_dim
     orth_proj = (
-        torch.eye(outcome_dim) - torch.transpose(axes_learned, -2, -1) @ axes_learned
+        torch.eye(outcome_dim) -
+        torch.transpose(axes_learned, -2, -1) @ axes_learned
     )
 
     # Y @ orth_proj is num_samples x outcome_dim
@@ -138,7 +139,8 @@ def mc_max_outcome_error(problem, axes_learned, n_test) -> float:
 
     # I-VV^T, projection onto orthogonal space of V, shape is outcome_dim x outcome_dim
     orth_proj = (
-        torch.eye(outcome_dim) - torch.transpose(axes_learned, -2, -1) @ axes_learned
+        torch.eye(outcome_dim) -
+        torch.transpose(axes_learned, -2, -1) @ axes_learned
     )
 
     # test_Y @ orth_proj is num_samples x outcome_dim
@@ -181,25 +183,24 @@ def empirical_max_util_error(Y, axes_learned, util_func) -> float:
 
 def mc_max_util_error(problem, axes_learned, util_func, n_test) -> float:
     r"""
-    Compute the diagnostic $\mathbb{E}[max_x \|g(f(x)) - g(VV^T f(x))\|_2$,
+    Compute the diagnostic $\mathbb{E}[max_x \|g(f(x)) - g(VV^T f(x))\|_2]$,
     through Monte Carlo sampling. V = axes_learned transposed, where
-    each column of V is a learned principal axis. f is the true outcome function
-    and g is the true utility function.
+    each column of V is a learned principal axis. 
+    f is the true outcome function and g is the true utility function.
 
     This quantity is a Monte Carlo estimate of ``expected worst case
     magnitude of utility recovery error", which reflects
     how well we can learn the utility function with the input space being
-    outcome spaced projected onto the subspace V.
+    outcome space projected onto the subspace V.
 
     Args:
         problem: a TestProblem, maps inputs to outcomes
-        Y: num_samples x outcome_dim tensor,
-            each row an outcome data point
         axes_learned: num_axes x outcome_dim tensor,
             each row a learned principal axis
         util_func: ground truth utility function (outcome -> utility)
+        n_test: number of test points to estimate the expectation
     Returns:
-        maximum difference, among the sampled data points, of the
+        expected maximum difference, among the sampled data points, of the
             true utility value and the utility value of the projection
             of sampled outcome data onto the subpace V.
     """
@@ -211,10 +212,10 @@ def mc_max_util_error(problem, axes_learned, util_func, n_test) -> float:
     proj = torch.transpose(axes_learned, -2, -1) @ axes_learned
 
     # compute util(Y) - util(VV^T Y)
-    test_util_difference = torch.abs(util_func(test_Y) - util_func(test_Y @ proj))
+    test_util_difference = torch.abs(
+        util_func(test_Y) - util_func(test_Y @ proj))
 
     return torch.max(test_util_difference).item()
-
 
 
 def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:

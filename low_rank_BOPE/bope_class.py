@@ -54,6 +54,7 @@ from low_rank_BOPE.src.transforms import (
     SubsetOutcomeTransform,
 )
 from low_rank_BOPE.src.models import make_modified_kernel, MultitaskGPModel
+from low_rank_BOPE.src.diagnostics import mc_max_util_error
 
 
 class BopeExperiment:
@@ -61,7 +62,7 @@ class BopeExperiment:
     attr_list = {
         "pca_var_threshold": 0.95,
         "initial_experimentation_batch": 16,
-        "n_check_post_mean": 1, # TODO: change back
+        "n_check_post_mean": 1,  # TODO: change back
         "every_n_comps": 3,
         "verbose": True,
         "dtype": torch.double,
@@ -248,7 +249,7 @@ class BopeExperiment:
 
             # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
-            
+
             # select top k entries of PC_coeff
             dims_to_keep = np.argpartition(np.abs(reg.coef_), -self.latent_dim)[
                 -self.latent_dim:
@@ -257,7 +258,7 @@ class BopeExperiment:
             # retain the corresponding columns in V
             self.pcr_axes = torch.tensor(
                 torch.transpose(V[:, dims_to_keep], -2, -1))
-            
+
             # then plug these into LinearProjection O/I transforms
             self.transforms_covar_dict["pcr"] = {
                 "outcome_tf": LinearProjectionOutcomeTransform(self.pcr_axes),
@@ -521,6 +522,20 @@ class BopeExperiment:
         }
 
         # TODO: later log PCA and PCR subspace recovery diagnostics
+        if method == "pca":
+            exp_result["mc_max_util_error"] = mc_max_util_error(
+                problem=self.problem,
+                axes_learned=self.pca_axes,
+                util_func=self.util_func,
+                n_test=10000
+            )
+        elif method == "pcr":
+            exp_result["mc_max_util_error"] = mc_max_util_error(
+                problem=self.problem,
+                axes_learned=self.pcr_axes,
+                util_func=self.util_func,
+                n_test=10000
+            )
 
         self.final_candidate_results[method][pe_strategy] = exp_result
 
