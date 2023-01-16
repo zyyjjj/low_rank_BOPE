@@ -614,4 +614,4 @@ class BopeExperiment:
         torch.save(self.PE_session_results, self.output_path +
                    'PE_session_results_trial=' + str(self.trial_idx) + '.th')
         torch.save(self.final_candidate_results, self.output_path +
-                   'final_candidate_results_trial' + str(self.trial_idx) + '.th')
+                   'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
