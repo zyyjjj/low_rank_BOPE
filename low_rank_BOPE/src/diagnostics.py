@@ -1,31 +1,10 @@
 from torch import Tensor
-from gpytorch.priors.torch_priors import GammaPrior
-from gpytorch.priors import SmoothedBoxPrior
-from gpytorch.models import ExactGP
-from gpytorch.likelihoods import Likelihood
-from gpytorch.kernels import Kernel, LCMKernel, MaternKernel, RBFKernel, ScaleKernel
-from gpytorch.constraints import GreaterThan, Interval
-from gpytorch import ExactMarginalLogLikelihood
-from botorch.sampling.normal import SobolQMCNormalSampler
-from botorch.optim import optimize_acqf
-from botorch.models.transforms.outcome import OutcomeTransform
-from botorch.models.transforms.input import InputTransform
 from botorch.models.model import Model
-from botorch.models.gpytorch import GPyTorchModel
-from botorch.fit import fit_gpytorch_model
-from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
-from botorch.acquisition import LearnedObjective
 from low_rank_BOPE.src.pref_learning_helpers import (
-    check_pref_model_fit,
-    fit_pref_model,
-    gen_comps,
-    gen_exp_cand,
     gen_initial_real_data,
     generate_random_inputs,
-    ModifiedFixedSingleSampleModel,
 )
 import torch
-from typing import Dict, Optional
 
 import gpytorch
 import sys
