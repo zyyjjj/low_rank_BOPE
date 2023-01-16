@@ -20,6 +20,7 @@ from low_rank_BOPE.src.pref_learning_helpers import (
     fit_pref_model,
     gen_comps,
     gen_exp_cand,
+    gen_initial_real_data,
     generate_random_inputs,
     ModifiedFixedSingleSampleModel,
 )
@@ -208,7 +209,7 @@ def mc_max_util_error(problem, axes_learned, util_func, n_test) -> float:
     test_X = generate_random_inputs(problem, n_test).detach()
     test_Y = problem.evaluate_true(test_X).detach()
 
-    # VV^T, projection onto subspace spanned by V, shape is outcome_dim x outcome_dim
+    # VV^T, projection onto subspace spanned by V, `outcome_dim x outcome_dim`
     proj = torch.transpose(axes_learned, -2, -1) @ axes_learned
 
     # compute util(Y) - util(VV^T Y)
@@ -220,14 +221,15 @@ def mc_max_util_error(problem, axes_learned, util_func, n_test) -> float:
 
 def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
     r"""
-    Compute the fraction of variance explained with each axis supplied in the axes tensor
+    Compute the fraction of variance explained with each axis supplied in `axes`
 
     Args:
         data: `num_datapoints x output_dim` tensor
         axes: `num_axes x output_dim` tensor where each row is a principal axis
 
     Returns:
-        var_explained: `1 x num_axes` tensor with i-th entry being the fraction of variance explained by the i-th supplied axis
+        var_explained: `1 x num_axes` tensor with i-th entry being the fraction 
+            of variance explained by the i-th supplied axis
     """
 
     total_var = sum(torch.var(data, dim=0)).item()
@@ -241,3 +243,90 @@ def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
     var_explained = var_explained / total_var
 
     return var_explained
+
+
+def check_outcome_model_fit(
+    outcome_model: Model, 
+    problem: torch.nn.Module, 
+    n_test: int, 
+    batch_eval: bool = True
+) -> float:
+    r"""
+    Evaluate the goodness of fit of the outcome model.
+    Args:
+        outcome_model: GP model mapping input to outcome
+        problem: TestProblem
+        n_test: size of test set
+    Returns:
+        mse: mean squared error between posterior mean and true value
+            of the test set observations
+    """
+
+    torch.manual_seed(n_test)
+
+    # generate test set
+    test_X = generate_random_inputs(problem, n_test).detach()
+    if not batch_eval:
+        Y_list = []
+        for idx in range(len(test_X)):
+            y = problem(test_X[idx]).detach()
+            Y_list.append(y)
+        test_Y = torch.stack(Y_list).squeeze(1)
+    else:
+        test_Y = problem.evaluate_true(test_X).detach()
+
+    # run outcome model posterior prediction on test data
+    test_posterior_mean = outcome_model.posterior(test_X).mean
+
+    # compute mean squared error
+    mse = ((test_posterior_mean - test_Y)**2).mean(axis=0).detach().sum().item()
+
+    return mse
+
+
+def check_util_model_fit(
+    pref_model: Model, 
+    problem: torch.nn.Module, 
+    util_func: torch.nn.Module, 
+    n_test: int, 
+    batch_eval: bool
+) -> float:
+    r"""
+    Evaluate the goodness of fit of the utility model.
+    Args:
+        pref_model: GP mapping outcome to utility
+        problem: TestProblem
+        util_func: ground truth utility function (outcome -> utility)
+        n_test: number of outcomes in test set; this gives rise to
+            `n_test/2` pairwise comparisons
+    Returns:
+        pref_prediction_accuracy: fraction of the `n_test/2` pairwise
+            preference that the model correctly predicts
+    """
+
+    # generate test set
+    test_X, test_Y, test_util_vals, test_comps = gen_initial_real_data(
+        n=n_test, 
+        problem=problem, 
+        util_func=util_func, 
+        comp_noise=0, 
+        batch_eval=batch_eval
+    )
+
+    # run pref_model on test data, get predictions
+    posterior_util_mean = pref_model.posterior(test_Y).mean
+    posterior_util_mean = posterior_util_mean.reshape((n_test // 2, 2))
+
+    # compute pref prediction accuracy
+    # the prediction for pair (i, i+1) is correct if
+    # item i is preferred to item i+1, so the row in test_comps is [i, i+1]
+    # and predicted utility of item i is higher than that of i+1
+    # vice versa: [i+1, i] and posterior_util(i) < posterior_util(i+1)
+    correct_test_rankings = (posterior_util_mean[:,0] - posterior_util_mean[:,1]) * (
+        test_comps[:, 0] - test_comps[:, 1]
+    )
+    pref_prediction_accuracy = sum(correct_test_rankings < 0) / len(
+        correct_test_rankings
+    )
+
+    return pref_prediction_accuracy.item()

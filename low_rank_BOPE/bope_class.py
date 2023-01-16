@@ -33,8 +33,6 @@ from botorch.utils.sampling import draw_sobol_samples
 from sklearn.linear_model import LinearRegression
 
 from low_rank_BOPE.src.pref_learning_helpers import (
-    check_outcome_model_fit,
-    check_pref_model_fit,
     # find_max_posterior_mean, # TODO: later see if we want the error-handled version
     fit_outcome_model,
     # fit_pref_model, # TODO: later see if we want the error-handled version
@@ -54,7 +52,11 @@ from low_rank_BOPE.src.transforms import (
     SubsetOutcomeTransform,
 )
 from low_rank_BOPE.src.models import make_modified_kernel, MultitaskGPModel
-from low_rank_BOPE.src.diagnostics import mc_max_util_error
+from low_rank_BOPE.src.diagnostics import (
+    mc_max_util_error,
+    check_outcome_model_fit,
+    check_util_model_fit,
+)
 
 
 class BopeExperiment:
@@ -328,7 +330,7 @@ class BopeExperiment:
                 }
 
         self.outcome_models_dict[method] = outcome_model
-
+        
     def fit_pref_model(
         self,
         Y,
@@ -509,19 +511,25 @@ class BopeExperiment:
             f"{method}-{pe_strategy} qNEIUU candidate utility: {qneiuu_util:.5f}"
         )
 
+        outcome_model_mse = check_outcome_model_fit(
+            outcome_model=self.outcome_models_dict[method],
+            problem=self.problem,
+            n_test=1000
+        )
+
         exp_result = {
             "candidate": cand_X,
             "candidate_util": qneiuu_util,
             "method": method,
             "strategy": pe_strategy,
             "run_id": self.trial_idx,
+            "outcome_model_mse": outcome_model_mse,
             # "time_consumed": time_consumed,
-            # "outcome_model_mse": outcome_model_mse,
             # "pref_model_acc": pref_model_acc,
             # "outcome_model_fit_time": outcome_model_fitting_time,
         }
 
-        # log PCA and PCR subspace recovery diagnostics
+        # log PCA and PCR utility recovery diagnostics
         if method == "pca":
             exp_result["mc_max_util_error"] = mc_max_util_error(
                 problem=self.problem,
