@@ -521,7 +521,7 @@ class BopeExperiment:
             # "outcome_model_fit_time": outcome_model_fitting_time,
         }
 
-        # TODO: later log PCA and PCR subspace recovery diagnostics
+        # log PCA and PCR subspace recovery diagnostics
         if method == "pca":
             exp_result["mc_max_util_error"] = mc_max_util_error(
                 problem=self.problem,
