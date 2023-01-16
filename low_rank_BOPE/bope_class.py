@@ -527,14 +527,14 @@ class BopeExperiment:
                 problem=self.problem,
                 axes_learned=self.pca_axes,
                 util_func=self.util_func,
-                n_test=10000
+                n_test=1000
             )
         elif method == "pcr":
             exp_result["mc_max_util_error"] = mc_max_util_error(
                 problem=self.problem,
                 axes_learned=self.pcr_axes,
                 util_func=self.util_func,
-                n_test=10000
+                n_test=1000
             )
 
         self.final_candidate_results[method][pe_strategy] = exp_result
