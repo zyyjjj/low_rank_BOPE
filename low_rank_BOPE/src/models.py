@@ -135,18 +135,17 @@ def make_modified_kernel(ard_num_dims):
 
     covar_module = ScaleKernel(
         RBFKernel(
-            # batch_shape=self.batch_shape,
             ard_num_dims=ard_num_dims,
             lengthscale_prior=ls_prior,
             lengthscale_constraint=GreaterThan(
                 lower_bound=1e-4, transform=None, initial_value=ls_prior_mode
             ),
         ),
+        outputscale_prior=SmoothedBoxPrior(a=0.2, b=5.0),
+        outputscale_constraint=Interval(lower_bound=0.2, upper_bound=5.0),
         # outputscale_prior=SmoothedBoxPrior(a=1e-2, b=1e2),
         # outputscale_prior=SmoothedBoxPrior(a=0.1, b=10),
         # outputscale_constraint=Interval(lower_bound=0.1, upper_bound=10),
-        outputscale_prior=SmoothedBoxPrior(a=0.2, b=5.0),
-        outputscale_constraint=Interval(lower_bound=0.2, upper_bound=5.0),
     )
 
     return covar_module

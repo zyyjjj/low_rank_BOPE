@@ -268,7 +268,8 @@ def check_util_model_fit(
     problem: torch.nn.Module, 
     util_func: torch.nn.Module, 
     n_test: int, 
-    batch_eval: bool
+    batch_eval: bool,
+    return_util_vals: bool = False
 ) -> float:
     r"""
     Evaluate the goodness of fit of the utility model.
@@ -294,18 +295,21 @@ def check_util_model_fit(
 
     # run pref_model on test data, get predictions
     posterior_util_mean = pref_model.posterior(test_Y).mean
-    posterior_util_mean = posterior_util_mean.reshape((n_test // 2, 2))
+    posterior_util_mean_ = posterior_util_mean.reshape((n_test // 2, 2))
 
     # compute pref prediction accuracy
     # the prediction for pair (i, i+1) is correct if
     # item i is preferred to item i+1, so the row in test_comps is [i, i+1]
     # and predicted utility of item i is higher than that of i+1
     # vice versa: [i+1, i] and posterior_util(i) < posterior_util(i+1)
-    correct_test_rankings = (posterior_util_mean[:,0] - posterior_util_mean[:,1]) * (
+    correct_test_rankings = (posterior_util_mean_[:,0] - posterior_util_mean_[:,1]) * (
         test_comps[:, 0] - test_comps[:, 1]
     )
     pref_prediction_accuracy = sum(correct_test_rankings < 0) / len(
         correct_test_rankings
     )
 
-    return pref_prediction_accuracy.item()
+    if return_util_vals:
+        return test_util_vals, posterior_util_mean, pref_prediction_accuracy.item()
+    else:
+        return pref_prediction_accuracy.item()

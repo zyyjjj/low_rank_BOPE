@@ -61,7 +61,6 @@ def gen_comps(
             with the more preferable outcome followed by the other one in each row
     """
     cpu_util = util_vals.cpu()
-    print('cpu_util: ', cpu_util)
 
     comp_pairs = []
     for i in range(cpu_util.shape[0] // 2):
