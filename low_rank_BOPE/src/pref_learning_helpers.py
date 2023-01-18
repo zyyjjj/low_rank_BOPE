@@ -7,7 +7,7 @@
 from typing import Dict, Optional, Tuple
 
 import torch
-from botorch import fit_gpytorch_model
+from botorch import fit_gpytorch_model, fit_gpytorch_mll
 
 from botorch.acquisition import LearnedObjective
 from botorch.acquisition.monte_carlo import qNoisyExpectedImprovement, qSimpleRegret
@@ -137,7 +137,8 @@ def fit_outcome_model(X: torch.Tensor, Y: torch.Tensor, **model_kwargs) -> Model
     outcome_model = SingleTaskGP(train_X=X, train_Y=Y, **model_kwargs)
 
     mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
-    fit_gpytorch_model(mll_outcome)
+    # fit_gpytorch_model(mll_outcome)
+    fit_gpytorch_mll(mll_outcome)
 
     return outcome_model
 
@@ -159,7 +160,8 @@ def fit_pref_model(Y: Tensor, comps: Tensor, **model_kwargs) -> Model:
     util_model = PairwiseGP(datapoints=Y, comparisons=comps, **model_kwargs)
 
     mll_util = PairwiseLaplaceMarginalLogLikelihood(util_model.likelihood, util_model)
-    fit_gpytorch_model(mll_util)
+    # fit_gpytorch_model(mll_util)
+    fit_gpytorch_mll(mll_util)
 
     return util_model
 

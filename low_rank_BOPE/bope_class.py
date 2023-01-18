@@ -211,7 +211,8 @@ class BopeExperiment:
             icm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
             )
-            fit_gpytorch_model(icm_mll)
+            # fit_gpytorch_model(icm_mll)
+            fit_gpytorch_mll(icm_mll)
 
         elif method == "lmc":
 
@@ -244,7 +245,8 @@ class BopeExperiment:
             lcm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
             )
-            fit_gpytorch_scipy(lcm_mll, options={"maxls": 30})
+            # fit_gpytorch_scipy(lcm_mll, options={"maxls": 30})
+            fit_gpytorch_mll(lcm_mll)
 
         elif method == "pcr":
             P, S, V = torch.svd(self.Y)
@@ -342,7 +344,8 @@ class BopeExperiment:
 
         mll_util = PairwiseLaplaceMarginalLogLikelihood(
             util_model.likelihood, util_model)
-        fit_gpytorch_model(mll_util)
+        # fit_gpytorch_model(mll_util)
+        fit_gpytorch_mll(mll)
 
         return util_model
 
