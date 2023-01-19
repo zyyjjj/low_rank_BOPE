@@ -129,7 +129,7 @@ def fit_LCM_model(
 
 
 # modified kernel with change in hyperpriors
-def make_modified_kernel(ard_num_dims):
+def make_modified_kernel(ard_num_dims, a=0.2, b=5.0):
     ls_prior = GammaPrior(1.2, 0.5)
     ls_prior_mode = (ls_prior.concentration - 1) / ls_prior.rate
 
@@ -141,8 +141,8 @@ def make_modified_kernel(ard_num_dims):
                 lower_bound=1e-4, transform=None, initial_value=ls_prior_mode
             ),
         ),
-        outputscale_prior=SmoothedBoxPrior(a=0.2, b=5.0),
-        outputscale_constraint=Interval(lower_bound=0.2, upper_bound=5.0),
+        outputscale_prior=SmoothedBoxPrior(a=a, b=b),
+        outputscale_constraint=Interval(lower_bound=a, upper_bound=b),
         # outputscale_prior=SmoothedBoxPrior(a=1e-2, b=1e2),
         # outputscale_prior=SmoothedBoxPrior(a=0.1, b=10),
         # outputscale_constraint=Interval(lower_bound=0.1, upper_bound=10),
