@@ -21,10 +21,9 @@ from botorch.models.transforms.input import (
     Normalize,
 )
 from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
-from botorch.fit import fit_gpytorch_mll, fit_gpytorch_model
-from botorch.optim.fit import fit_gpytorch_scipy
+from botorch.fit import fit_gpytorch_mll
 from botorch.optim.optimize import optimize_acqf
-from botorch.acquisition.objective import GenericMCObjective, LearnedObjective
+from botorch.acquisition.objective import LearnedObjective
 from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 from botorch.models.multitask import KroneckerMultiTaskGP
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -37,8 +36,6 @@ from low_rank_BOPE.src.pref_learning_helpers import (
     fit_outcome_model,
     # fit_pref_model, # TODO: later see if we want the error-handled version
     gen_exp_cand,
-    generate_random_exp_data,
-    generate_random_pref_data,
     gen_comps,
     ModifiedFixedSingleSampleModel
 )
@@ -55,7 +52,6 @@ from low_rank_BOPE.src.models import make_modified_kernel, MultitaskGPModel
 from low_rank_BOPE.src.diagnostics import (
     mc_max_util_error,
     check_outcome_model_fit,
-    check_util_model_fit,
 )
 
 
@@ -332,7 +328,7 @@ class BopeExperiment:
                 }
 
         self.outcome_models_dict[method] = outcome_model
-        
+
     def fit_pref_model(
         self,
         Y,
@@ -344,8 +340,7 @@ class BopeExperiment:
 
         mll_util = PairwiseLaplaceMarginalLogLikelihood(
             util_model.likelihood, util_model)
-        # fit_gpytorch_model(mll_util)
-        fit_gpytorch_mll(mll)
+        fit_gpytorch_mll(mll_util)
 
         return util_model
 
