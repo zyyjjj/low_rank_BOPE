@@ -124,18 +124,25 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         r"""
 
         Args:
-            opt_config: Tuple of two lists, containing indices of the metrics that serve as the objective(s) and constraint(s) respectively
-            initial_X: `num_initial_points x input_dim` tensor, initial inputs to warm-start the PC-generating model
+            opt_config: Tuple of two lists, containing indices of the metrics
+                that serve as the objective(s) and constraint(s) respectively
+            initial_X: `num_initial_points x input_dim` tensor, initial inputs 
+                to warm-start the PC-generating model
             bounds: `input_dim x 2` tensor, bounds of input domain
             ground_truth_principal_axes: `num_axes x output_dim` tensor
             noise_std: real number that represents the noise (SD) of the metrics
-            PC_lengthscales: `num_PCs`-dimensional tensor, where the i-th entry specifies the kernel lengthscale for simulating the i-th PC;
+            PC_lengthscales: `num_PCs`-dimensional tensor, where the i-th entry 
+                specifies the kernel lengthscale for simulating the i-th PC;
                 if None, set to all ones
-            PC_scaling_factors: `num_PCs`-dimensional tensor, where the i-th entry is the factor by which to scale the simulated PC before projecting to metric space;
-                if None, set to all ones
-            simulation_kernel_cls: type of kernel to use for the PCs; default is MaternKernel()
-            jitter: small real number to add to the diagonal of the simulated covariance matrix to prevent non-PSDness
-            negate: if True, minimize the objective; if False (default), maximize the objective
+            PC_scaling_factors: `num_PCs`-dimensional tensor, where the i-th 
+                entry is the factor by which to scale the simulated PC before 
+                projecting to metric space; if None, set to all ones
+            simulation_kernel_cls: type of kernel to use for the PCs; default 
+                is MaternKernel()
+            jitter: small real number to add to the diagonal of the simulated 
+                covariance matrix to prevent non-PSDness
+            negate: if True, minimize the objective; if False (default), 
+                maximize the objective
             **tkwargs: specifies variable dtype and device
         """
 
