@@ -288,3 +288,44 @@ def make_problem(**kwargs):
     )
 
     return problem
+
+
+# ========== Synthetic utility functions ==========
+
+class LinearUtil(torch.nn.Module):
+    """ 
+    Create linear utility function modulew with specified coefficient beta.
+    f(y) = beta_1 * y_1 + ... + beta_k * y_k
+    """
+    def __init__(self, beta: torch.Tensor):
+        """
+        Args:
+            beta: size `output_dim` tensor
+        """
+        super().__init__()
+        self.register_buffer("beta", beta)
+
+    def calc_raw_util_per_dim(self, Y):
+        return Y * self.beta.to(Y)
+
+    def forward(self, Y, X=None):
+        return Y @ self.beta.to(Y)
+
+class SumOfSquaresUtil(torch.nn.Module):
+    """ 
+    Create sum of squares utility function modulew with specified coefficient beta.
+    f(y) = beta_1 * y_1^2 + ... + beta_k * y_k^2
+    """
+    def __init__(self, beta: torch.Tensor):
+        """
+        Args:
+            beta: size `output_dim` tensor
+        """
+        super().__init__()
+        self.register_buffer("beta", beta)
+
+    def calc_raw_util_per_dim(self, Y):
+        return torch.square(Y) * self.beta.to(Y)
+
+    def forward(self, Y, X=None):
+        return torch.square(Y) @ self.beta.to(Y)

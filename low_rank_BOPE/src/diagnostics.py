@@ -1,13 +1,12 @@
-from torch import Tensor
-from botorch.models.model import Model
-from low_rank_BOPE.src.pref_learning_helpers import (
-    gen_initial_real_data,
-    generate_random_inputs,
-)
-import torch
+import sys
 
 import gpytorch
-import sys
+import torch
+from botorch.models.model import Model
+from low_rank_BOPE.src.pref_learning_helpers import (gen_initial_real_data,
+                                                     generate_random_inputs)
+from torch import Tensor
+
 sys.path.append('..')
 
 
@@ -313,3 +312,25 @@ def check_util_model_fit(
         return test_util_vals, posterior_util_mean, pref_prediction_accuracy.item()
     else:
         return pref_prediction_accuracy.item()
+
+
+def check_util_model_fit_wrapper(problem, util_func, models_dict, seed = 0, n_test = 1000):
+    """ 
+    Check the accuracy of preference prediction of the models in `models_dict` 
+    on a separate test set. Return the accuracy in a dictionary. 
+    """
+    torch.manual_seed(seed)
+    acc_dict = {}
+    for model_key, model in models_dict.items():
+        print(f'checking fit of {model_key}')
+        acc = check_util_model_fit(
+            pref_model = model,
+            problem = problem,
+            util_func = util_func,
+            n_test = n_test,
+            batch_eval = True,
+            return_util_vals = False
+        )
+        acc_dict[model_key] = acc
+    
+    return acc_dict

@@ -7,30 +7,29 @@
 from typing import Dict, Optional, Tuple
 
 import torch
-from botorch import fit_gpytorch_model, fit_gpytorch_mll
-
+from botorch import fit_gpytorch_mll
 from botorch.acquisition import LearnedObjective
-from botorch.acquisition.monte_carlo import qNoisyExpectedImprovement, qSimpleRegret
+from botorch.acquisition.monte_carlo import (qNoisyExpectedImprovement,
+                                             qSimpleRegret)
 from botorch.acquisition.objective import MCAcquisitionObjective
-
 from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models import SingleTaskGP
-
 from botorch.models.deterministic import DeterministicModel
 from botorch.models.model import Model
-
-from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
-from botorch.models.transforms.input import InputTransform
+from botorch.models.pairwise_gp import (PairwiseGP,
+                                        PairwiseLaplaceMarginalLogLikelihood)
+from botorch.models.transforms.input import (ChainedInputTransform,
+                                             InputTransform)
 from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
-# from botorch.sampling.samplers import SobolQMCNormalSampler
-
 from botorch.utils.sampling import draw_sobol_samples
-from gpytorch.likelihoods import Likelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from torch import Tensor
 
+from low_rank_BOPE.low_rank_BOPE.src.models import make_modified_kernel
+from low_rank_BOPE.low_rank_BOPE.src.transforms import (InputCenter,
+                                                        PCAInputTransform)
 
 # ======= Initial data generation =======
 
@@ -165,6 +164,72 @@ def fit_pref_model(Y: Tensor, comps: Tensor, **model_kwargs) -> Model:
 
     return util_model
 
+
+def fit_util_models(train_Y, comps, util_vals, input_transform, covar_module):
+    """ 
+    Fit utility model given (1) comparisons (2) ground truth utility values.
+    Return the two fitted GPs.
+    (In practice, fitting model (2) is usually not feasible.)
+    (This function is developed for easier ablation testing)
+    """
+    util_model_rel = fit_pref_model(
+        train_Y, 
+        comps, 
+        input_transform = input_transform, 
+        covar_module = covar_module
+    )
+    util_model_abs = SingleTaskGP(
+        train_Y, 
+        util_vals.unsqueeze(1), 
+        input_transform = input_transform, 
+        covar_module = covar_module
+    )
+    mll = ExactMarginalLogLikelihood(util_model_abs.likelihood, util_model_abs)
+    fit_gpytorch_mll(mll)
+
+    return util_model_rel, util_model_abs
+
+def fit_util_models_wrapper(
+    train_Y, comps, util_vals, method, axes_dict = None, 
+    modify_kernel = False, a=0.2, b=5
+):
+    """ 
+    Fit utility models for different methods (st, pca, pcr) and potentially a 
+    set of different axes in `axes_dict`. If specified, also modify the hyperpriors 
+    of the input covar_module based on the supplied parameter value `a` and `b`.
+    Return the fitted models in a dictionary. The suffix '_rel' means the model
+    is fit on pairwise comparisons; the suffix '_abs' means the model is fit on 
+    ground truth utility values.
+    (This function is developed for easier ablation testing)
+    """
+    input_transform = None
+    models_dict = {}
+    if method in ("pca", "pcr"):
+        for axes_label, axes in axes_dict.items():
+            latent_dim = axes.shape[0]
+            input_transform = ChainedInputTransform(
+                        **{
+                            "center": InputCenter(train_Y.shape[-1]),
+                            "pca": PCAInputTransform(axes.to(torch.double)),
+                        }
+                    )
+            covar_module = make_modified_kernel(
+                ard_num_dims=latent_dim, a=a, b=b) if modify_kernel else None
+
+            util_model_rel, util_model_abs = fit_util_models(
+                train_Y, comps, util_vals, input_transform, covar_module)
+            models_dict[method+'_'+axes_label+'_rel'] = util_model_rel
+            models_dict[method+'_'+axes_label+'_abs'] = util_model_abs
+    
+    elif method == "st":
+        covar_module = make_modified_kernel(ard_num_dims=train_Y.shape[-1]) if modify_kernel else None
+        input_transform = None
+        util_model_rel, util_model_abs = fit_util_models(
+                train_Y, comps, util_vals, input_transform, covar_module)
+        models_dict[method+'_rel'] = util_model_rel
+        models_dict[method+'_abs'] = util_model_abs
+    
+    return models_dict
 
 # ======= Data generation within preference learning =======
 
