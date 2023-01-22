@@ -2,16 +2,14 @@ from typing import List, Tuple, Type
 
 import numpy as np
 import scipy.linalg
-
 import torch
-from torch import Tensor
-
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from botorch.test_functions.base import ConstrainedBaseTestProblem
 from gpytorch.kernels import MaternKernel
 from gpytorch.kernels.kernel import Kernel
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from torch import Tensor
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 

@@ -4,6 +4,11 @@
 # Code is mostly inspired by Jerry Lin's implementation here:
 # https://github.com/facebookresearch/preference-exploration/blob/main/sim_helpers.py
 
+import sys
+
+sys.path.append('/home/yz685/low_rank_BOPE')
+sys.path.append(['..', '../..', '../../..'])
+
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -25,11 +30,9 @@ from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.sampling import draw_sobol_samples
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from low_rank_BOPE.src.models import make_modified_kernel
+from low_rank_BOPE.src.transforms import InputCenter, PCAInputTransform
 from torch import Tensor
-
-from low_rank_BOPE.low_rank_BOPE.src.models import make_modified_kernel
-from low_rank_BOPE.low_rank_BOPE.src.transforms import (InputCenter,
-                                                        PCAInputTransform)
 
 # ======= Initial data generation =======
 
@@ -180,7 +183,7 @@ def fit_util_models(train_Y, comps, util_vals, input_transform, covar_module):
     )
     util_model_abs = SingleTaskGP(
         train_Y, 
-        util_vals.unsqueeze(1), 
+        util_vals, 
         input_transform = input_transform, 
         covar_module = covar_module
     )
