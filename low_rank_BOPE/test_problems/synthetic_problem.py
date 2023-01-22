@@ -4,6 +4,7 @@ import numpy as np
 import scipy.linalg
 
 import torch
+from torch import Tensor
 
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
@@ -34,6 +35,53 @@ def generate_principal_axes(output_dim: int, num_axes: int, **tkwargs) -> torch.
     basis = scipy.linalg.orth(inducing_array).transpose()
 
     return torch.tensor(basis, **tkwargs)
+
+
+def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps, **tkwargs):
+    """
+    Create norm-1 vectors with a specified norm in the subspace
+    spanned by a specified set of axes.
+    This is used here to generate coefficients for the linear
+    utility function, with a controlled level of (dis)alignment
+    with the subspace for outcomes.
+    Args:
+        full_axes: `outcome_dim x outcome_dim` orthonormal matrix,
+            each row representing an axis
+        latent_dim: latent dimension
+        alpha: a number in [0,1] specifying the desired norm of the
+            projection of each coefficient onto the space
+            spanned by the first `latent_dim` rows of full_axes
+        n_reps: number of coefficients to generate
+    Returns:
+        `n_reps x outcome_dim` tensor, with each row being a linear
+            utility function coefficient
+    """
+
+    k = full_axes.shape[0]
+
+    # first generate vectors lying in the latent space with norm alpha
+    # z1 is `latent_dim x n_reps`, V1 is `outcome_dim x latent_dim`
+    z1 = torch.randn((latent_dim, n_reps)).to(**tkwargs)
+    V1 = torch.transpose(full_axes[:latent_dim], -2, -1).to(**tkwargs)
+    Vz1 = torch.matmul(V1, z1)
+    c_proj = torch.nn.functional.normalize(Vz1, dim=0) * alpha
+
+    if alpha == 1:
+        return torch.transpose(c_proj, -2, -1)
+
+    else:
+        # then generate vectors orthogonal to the latent space
+        # with norm sqrt(1-alpha^2)
+        # z2 is `(outcome_dim - latent_dim) x n_reps`
+        # V2 is `outcome_dim x (outcome_dim - latent_dim)`
+        z2 = torch.randn((k - latent_dim, n_reps)).to(**tkwargs)
+        V2 = torch.transpose(
+            full_axes[: (k - latent_dim)], -2, -1).to(**tkwargs)
+        Vz2 = torch.matmul(V2, z2)
+        c_orth = torch.nn.functional.normalize(
+            Vz2, dim=0) * np.sqrt(1 - alpha**2)
+
+        return torch.transpose(c_proj + c_orth, -2, -1)
 
 
 class PCATestProblem(ConstrainedBaseTestProblem):
@@ -114,7 +162,8 @@ class PCATestProblem(ConstrainedBaseTestProblem):
             )
 
             mvn_dist = MultivariateNormal(
-                torch.zeros(num_initial_points).to(**tkwargs), covar.to(**tkwargs)
+                torch.zeros(num_initial_points).to(
+                    **tkwargs), covar.to(**tkwargs)
             )
             one_PC = mvn_dist.sample().unsqueeze(1).to(**tkwargs)
 
@@ -180,3 +229,55 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         metric_vals_noiselss = self.eval_metrics_true(X)
 
         return metric_vals_noiselss[:, self.opt_config[1]]
+
+
+def make_problem(**kwargs):
+    """
+    Create PCATestProblem with specified low-rank structure.
+    """
+
+    # default config
+    config = {
+        "input_dim": 1,
+        "outcome_dim": 20,
+        "PC_noise_level": 0,
+        "noise_std": 0.1,
+        "num_initial_samples": 20,
+        "ground_truth_principal_axes": torch.Tensor([1]*20),
+        "PC_lengthscales": [0.1],
+        "PC_scaling_factors": [2],
+        "dtype": torch.double,
+        "np_seed": 1234,
+        "torch_seed": 1234
+    }
+
+    # overwrite config settings with kwargs
+    for key, val in kwargs.items():
+        config[key] = val
+
+    np.random.seed(config["np_seed"])
+    torch.manual_seed(config["torch_seed"])
+    torch.autograd.set_detect_anomaly(True)
+
+    initial_X = torch.randn(
+        (config["num_initial_samples"], config["input_dim"]), dtype=config["dtype"])
+
+    obj_indices = list(range(config["outcome_dim"]))
+    cons_indices = []
+
+    if len(config['ground_truth_principal_axes'].shape) == 1:
+        config['ground_truth_principal_axes'] = config['ground_truth_principal_axes'].unsqueeze(
+            0)
+
+    problem = PCATestProblem(
+        opt_config=(obj_indices, cons_indices),
+        initial_X=initial_X,
+        bounds=torch.Tensor([[0, 1]] * config["input_dim"]),
+        ground_truth_principal_axes=config['ground_truth_principal_axes'],
+        noise_std=config["noise_std"],
+        PC_lengthscales=Tensor(config["PC_lengthscales"]),
+        PC_scaling_factors=Tensor(config["PC_scaling_factors"]),
+        dtype=torch.double,
+    )
+
+    return problem
