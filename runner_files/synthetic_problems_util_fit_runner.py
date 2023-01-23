@@ -112,6 +112,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
                 pca_acc_dict = check_util_model_fit_wrapper(
                     problem, util_func, pca_models_dict, n_test=n_test
                 )
+                break
             except RuntimeError as e:
                 print(str(e))
                 n_test /= 2
@@ -130,6 +131,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
                 st_acc_dict = check_util_model_fit_wrapper(
                     problem, util_func, st_models_dict, n_test=n_test
                 )
+                break
             except RuntimeError as e:
                 print(str(e))
                 n_test /= 2
@@ -137,6 +139,8 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
                     problem, util_func, st_models_dict, n_test=n_test
                 )
         
+        pca_acc_dict['learned_latent_dim'] = pca_model.outcome_transform['pca'].axes_learned.shape[0]
+
         print("pca_acc_dict", pca_acc_dict)
         print("st_acc_dict", st_acc_dict)
         pca_acc_dict_alphas.append(pca_acc_dict)
@@ -147,15 +151,18 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
 
 if __name__ == "__main__":
 
+    output_path = "../experiments/util_fit/"
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
     for config_name in experiment_configs:
         pca_acc_dict_l, st_acc_dict_l = [], []
-        for seed in range(5):
+        for seed in range(1):
             pca_acc_dicts, st_acc_dicts = run_pipeline(
                 config_name=config_name, seed=seed
             )
             pca_acc_dict_l.append(pca_acc_dicts)
             st_acc_dict_l.append(st_acc_dicts)
-        
-        torch.save(pca_acc_dict_l, "/home/yz685/low_rank_BOPE/experiments/util_fit" + config_name + "/pca_acc.pt")
 
-        torch.save(pca_acc_dict_l, "/home/yz685/low_rank_BOPE/experiments/util_fit" + config_name + "/st_acc.pt")
+        torch.save(pca_acc_dict_l, output_path + config_name + "_pca_acc.pt")
+        torch.save(st_acc_dict_l, output_path + config_name + "_st_acc.pt")
