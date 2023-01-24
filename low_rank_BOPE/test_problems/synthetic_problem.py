@@ -162,8 +162,9 @@ class PCATestProblem(ConstrainedBaseTestProblem):
             kernel = simulation_kernel_cls()
             kernel.lengthscale = PC_lengthscales[i].item()
 
-            covar = kernel(initial_X).evaluate() + jitter * torch.ones(
-                kernel(initial_X).evaluate().shape
+            covar_ = kernel(initial_X).evaluate()
+            covar = covar_ + jitter * torch.ones(
+                covar_.shape
             )
 
             mvn_dist = MultivariateNormal(
