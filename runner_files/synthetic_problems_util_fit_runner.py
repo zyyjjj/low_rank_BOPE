@@ -25,8 +25,8 @@ experiment_configs = {
     "rank_1_linear": [1],
     "rank_2_linear": [2,1],
     "rank_4_linear": [4,2,2,1],
-    "rank_6_linear": [8,4,4,2,2,1],
-    "rank_8_linear": [16,8,8,4,4,2,2,1],
+    # "rank_6_linear": [8,4,4,2,2,1],
+    # "rank_8_linear": [16,8,8,4,4,2,2,1],
     # TODO later: add nonlinear utility functions
 }
 
@@ -47,7 +47,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
 
     pca_acc_dict_alphas, st_acc_dict_alphas = [], []
 
-    for alpha in [0, 0.4, 0.6, 1.0]:
+    for alpha in [0, 0.2, 0.4, 0.6, 0.8, 1.0]:
 
         beta = make_controlled_coeffs(
             full_axes=full_axes,
@@ -61,16 +61,20 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
         util_func = LinearUtil(beta=beta)
 
         ground_truth_principal_axes = full_axes[: rank]
+        print('ground truth principal axes', ground_truth_principal_axes)
 
         problem = make_problem(
-            input_dim = input_dim,
+            input_dim = input_dim, 
             outcome_dim = outcome_dim,
+            num_initial_samples = input_dim*outcome_dim,
             ground_truth_principal_axes = ground_truth_principal_axes,
             PC_lengthscales = [0.5]*rank,
             PC_scaling_factors = experiment_configs[config_name]
         )
 
-        train_X, train_Y, util_vals, comps = gen_initial_real_data(n=100, problem=problem, util_func=util_func)
+        train_X, train_Y, util_vals, comps = gen_initial_real_data(
+            n=100, problem=problem, util_func=util_func
+        )
         print(
             'train X, train Y, util vals, comps shape', 
             train_X.shape, train_Y.shape, util_vals.shape, comps.shape
@@ -92,6 +96,8 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
         pca_mll = ExactMarginalLogLikelihood(pca_model.likelihood, pca_model)
 
         fit_gpytorch_mll(pca_mll)
+
+        print('pca transform properties', pca_model.outcome_transform['pca'].__dict__)
 
         pca_axes_dict = {
             "learned": pca_model.outcome_transform['pca'].axes_learned,
@@ -139,6 +145,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
                     problem, util_func, st_models_dict, n_test=n_test
                 )
         
+        print('PCA learned axes shape', pca_model.outcome_transform['pca'].axes_learned.shape)
         pca_acc_dict['learned_latent_dim'] = pca_model.outcome_transform['pca'].axes_learned.shape[0]
 
         print("pca_acc_dict", pca_acc_dict)
@@ -151,7 +158,10 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
 
 if __name__ == "__main__":
 
-    output_path = "../experiments/util_fit/"
+    input_dim = 1
+    outcome_dim = 20
+
+    output_path = f"../experiments/util_fit_{input_dim}_{outcome_dim}/"
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
@@ -159,8 +169,9 @@ if __name__ == "__main__":
         pca_acc_dict_l, st_acc_dict_l = [], []
         for seed in range(1):
             pca_acc_dicts, st_acc_dicts = run_pipeline(
-                config_name=config_name, seed=seed
-            )
+                config_name=config_name, seed=seed, 
+                outcome_dim = outcome_dim, input_dim = input_dim
+            ) 
             pca_acc_dict_l.append(pca_acc_dicts)
             st_acc_dict_l.append(st_acc_dicts)
 
