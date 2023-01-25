@@ -138,7 +138,7 @@ class BopeExperiment:
                 ),
             },
             # for synthetic problems only
-            "pcatrue": {
+            "true_proj": {
                 "outcome_tf": LinearProjectionOutcomeTransform(self.true_axes),
                 "input_tf": LinearProjectionInputTransform(self.true_axes),
                 "covar_module": make_modified_kernel(
