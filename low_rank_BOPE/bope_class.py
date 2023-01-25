@@ -1,58 +1,45 @@
 #!/usr/bin/env python3
 
+import copy
 import os
+import random
 from collections import defaultdict
 from typing import List
+
 import gpytorch
 import numpy as np
-import copy
-import random
 import torch
-
-from gpytorch.kernels import LCMKernel, MaternKernel
-from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
-from gpytorch.priors import GammaPrior
-from gpytorch.priors.lkj_prior import LKJCovariancePrior
-
-from botorch.models.transforms.outcome import ChainedOutcomeTransform, Standardize
-from botorch.models.transforms.input import (
-    ChainedInputTransform,
-    FilterFeatures,
-    Normalize,
-)
-from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
-from botorch.fit import fit_gpytorch_mll
-from botorch.optim.optimize import optimize_acqf
 from botorch.acquisition.objective import LearnedObjective
 from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
+from botorch.fit import fit_gpytorch_mll
 from botorch.models.multitask import KroneckerMultiTaskGP
+from botorch.models.pairwise_gp import (PairwiseGP,
+                                        PairwiseLaplaceMarginalLogLikelihood)
+from botorch.models.transforms.input import (ChainedInputTransform,
+                                             FilterFeatures, Normalize)
+from botorch.models.transforms.outcome import (ChainedOutcomeTransform,
+                                               Standardize)
+from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.sampling import draw_sobol_samples
-
+from gpytorch.kernels import LCMKernel, MaternKernel
+from gpytorch.mlls.exact_marginal_log_likelihood import \
+    ExactMarginalLogLikelihood
+from gpytorch.priors import GammaPrior
+from gpytorch.priors.lkj_prior import LKJCovariancePrior
+from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
+                                           mc_max_util_error)
+from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
+from low_rank_BOPE.src.pref_learning_helpers import (  # find_max_posterior_mean, # TODO: later see if we want the error-handled version; fit_pref_model, # TODO: later see if we want the error-handled version
+    ModifiedFixedSingleSampleModel, fit_outcome_model, gen_comps, gen_exp_cand)
+from low_rank_BOPE.src.transforms import (InputCenter,
+                                          LinearProjectionInputTransform,
+                                          LinearProjectionOutcomeTransform,
+                                          PCAInputTransform,
+                                          PCAOutcomeTransform,
+                                          SubsetOutcomeTransform,
+                                          generate_random_projection)
 from sklearn.linear_model import LinearRegression
-
-from low_rank_BOPE.src.pref_learning_helpers import (
-    # find_max_posterior_mean, # TODO: later see if we want the error-handled version
-    fit_outcome_model,
-    # fit_pref_model, # TODO: later see if we want the error-handled version
-    gen_exp_cand,
-    gen_comps,
-    ModifiedFixedSingleSampleModel
-)
-from low_rank_BOPE.src.transforms import (
-    generate_random_projection,
-    InputCenter,
-    LinearProjectionInputTransform,
-    LinearProjectionOutcomeTransform,
-    PCAInputTransform,
-    PCAOutcomeTransform,
-    SubsetOutcomeTransform,
-)
-from low_rank_BOPE.src.models import make_modified_kernel, MultitaskGPModel
-from low_rank_BOPE.src.diagnostics import (
-    mc_max_util_error,
-    check_outcome_model_fit,
-)
 
 
 class BopeExperiment:
@@ -71,7 +58,9 @@ class BopeExperiment:
         "sampler_num_outcome_samples": 64,
         "maxiter": 1000,
         "latent_dim": None,
-        "min_stdv": 100000
+        "min_stdv": 100000,
+        "true_axes": None, # specify these for synthetic problems
+        "true_latent_dim": None # specify these for synthetic problems
     }
 
     def __init__(
@@ -146,6 +135,14 @@ class BopeExperiment:
                             num_axes=self.latent_dim,
                         ),
                     }
+                ),
+            },
+            # for synthetic problems only
+            "pcatrue": {
+                "outcome_tf": LinearProjectionOutcomeTransform(self.true_axes),
+                "input_tf": LinearProjectionInputTransform(self.true_axes),
+                "covar_module": make_modified_kernel(
+                    ard_num_dims=self.true_latent_dim
                 ),
             },
             "mtgp": {
