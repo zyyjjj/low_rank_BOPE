@@ -34,6 +34,19 @@ experiment_configs = {
 
 
 def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
+    """
+    Args:
+        config_name: string specifying the outcome rank and utility type
+        seed: integer for the random seed
+        outcome_dim: dimensionality of the outcome
+        input_dim: dimensionality of the input
+    Returns:
+        pca_acc_dict_alphas: dictionary with alpha values as keys and each value
+            being a dictionary of the pca-fitted utility model's test accuracy
+            for the simulated utility with the particular alpha value
+        st_acc_dict_alphas: same but for utility model without dim reduction
+    """
+
 
     _, rank, util_type = config_name.split('_')
     rank = int(rank)
@@ -47,7 +60,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
         dtype=torch.double
     )
 
-    pca_acc_dict_alphas, st_acc_dict_alphas = [], []
+    pca_acc_dict_alphas, st_acc_dict_alphas = defaultdict(dict)
 
     for alpha in [0, 0.2, 0.4, 0.6, 0.8, 1.0]:
 
@@ -150,34 +163,33 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
         print('PCA learned axes shape', pca_model.outcome_transform['pca'].axes_learned.shape)
         pca_acc_dict['learned_latent_dim'] = pca_model.outcome_transform['pca'].axes_learned.shape[0]
 
+        pca_acc_dict["alpha"] = alpha
+        st_acc_dict["alpha"] = alpha
+
         print("pca_acc_dict", pca_acc_dict)
         print("st_acc_dict", st_acc_dict)
-        pca_acc_dict_alphas.append(pca_acc_dict)
-        st_acc_dict_alphas.append(st_acc_dict)
+        pca_acc_dict_alphas[alpha] = pca_acc_dict
+        st_acc_dict_alphas[alpha] = st_acc_dict
 
     return pca_acc_dict_alphas, st_acc_dict_alphas
 
 
 if __name__ == "__main__":
 
-    input_dim = 1
-    outcome_dim = 20
-    n_replications = 5
+    trial_idx = int(sys.argv[1])
+    input_dim = int(sys.argv[2])
+    outcome_dim = int(sys.argv[3])
 
     output_path = f"../experiments/util_fit_{input_dim}_{outcome_dim}/"
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
     for config_name in experiment_configs:
-        pca_acc_dict_l, st_acc_dict_l = [], []
 
-        for seed in range(n_replications):
-            pca_acc_dicts, st_acc_dicts = run_pipeline(
-                config_name=config_name, seed=seed, 
-                outcome_dim = outcome_dim, input_dim = input_dim
-            ) 
-            pca_acc_dict_l.append(pca_acc_dicts)
-            st_acc_dict_l.append(st_acc_dicts)
+        pca_acc_dict_alphas, st_acc_dict_alphas = run_pipeline(
+            config_name=config_name, seed=trial_idx, 
+            outcome_dim = outcome_dim, input_dim = input_dim
+        ) 
 
         # pool = multiprocessing.Pool(n_replications)
         # params = [(config_name, seed, outcome_dim, input_dim) for seed in range(n_replications)]
@@ -185,5 +197,11 @@ if __name__ == "__main__":
         # pca_acc_dict_l, st_acc_dict_l = zip(*pool.map(run_pipeline, params))
         # pca_acc_dict_l, st_acc_dict_l = zip(*pool.map(partial(run_pipeline, config_name = config_name, outcome_dim = outcome_dim, input_dim = input_dim), list(range(5))))
 
-        torch.save(pca_acc_dict_l, output_path + config_name + "_pca_acc.pt")
-        torch.save(st_acc_dict_l, output_path + config_name + "_st_acc.pt")
+        torch.save(
+            pca_acc_dict_alphas, 
+            output_path + config_name + f"_pca_acc_trial={trial_idx}.pt"
+        )
+        torch.save(
+            st_acc_dict_alphas, 
+            output_path + config_name + f"_st_acc_trial={trial_idx}.pt"
+        )
