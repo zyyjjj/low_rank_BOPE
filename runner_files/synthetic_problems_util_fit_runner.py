@@ -6,6 +6,8 @@ sys.path.append(file_dir)
 sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
+import multiprocessing
+
 import torch
 from botorch import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
@@ -22,9 +24,9 @@ from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, generate_principal_axes, make_controlled_coeffs, make_problem)
 
 experiment_configs = {
-    "rank_1_linear": [1],
-    "rank_2_linear": [2,1],
-    "rank_4_linear": [4,2,2,1],
+    "rank_1_linear": [2],
+    "rank_2_linear": [4,2],
+    "rank_4_linear": [8,4,4,2],
     # "rank_6_linear": [8,4,4,2,2,1],
     # "rank_8_linear": [16,8,8,4,4,2,2,1],
     # TODO later: add nonlinear utility functions
@@ -60,14 +62,14 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
 
         util_func = LinearUtil(beta=beta)
 
-        ground_truth_principal_axes = full_axes[: rank]
-        print('ground truth principal axes', ground_truth_principal_axes)
+        true_axes = full_axes[: rank]
+        print('ground truth principal axes', true_axes)
 
         problem = make_problem(
             input_dim = input_dim, 
             outcome_dim = outcome_dim,
             num_initial_samples = input_dim*outcome_dim,
-            ground_truth_principal_axes = ground_truth_principal_axes,
+            true_axes = true_axes,
             PC_lengthscales = [0.5]*rank,
             PC_scaling_factors = experiment_configs[config_name]
         )
@@ -101,7 +103,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
 
         pca_axes_dict = {
             "learned": pca_model.outcome_transform['pca'].axes_learned,
-            "true": ground_truth_principal_axes,
+            "true": true_axes,
             "oracle": beta.transpose(-2, -1)
         }
  
@@ -160,6 +162,7 @@ if __name__ == "__main__":
 
     input_dim = 1
     outcome_dim = 20
+    n_replications = 5
 
     output_path = f"../experiments/util_fit_{input_dim}_{outcome_dim}/"
     if not os.path.exists(output_path):
@@ -167,13 +170,20 @@ if __name__ == "__main__":
 
     for config_name in experiment_configs:
         pca_acc_dict_l, st_acc_dict_l = [], []
-        for seed in range(1):
+
+        for seed in range(n_replications):
             pca_acc_dicts, st_acc_dicts = run_pipeline(
                 config_name=config_name, seed=seed, 
                 outcome_dim = outcome_dim, input_dim = input_dim
             ) 
             pca_acc_dict_l.append(pca_acc_dicts)
             st_acc_dict_l.append(st_acc_dicts)
+
+        # pool = multiprocessing.Pool(n_replications)
+        # params = [(config_name, seed, outcome_dim, input_dim) for seed in range(n_replications)]
+        # print(params)
+        # pca_acc_dict_l, st_acc_dict_l = zip(*pool.map(run_pipeline, params))
+        # pca_acc_dict_l, st_acc_dict_l = zip(*pool.map(partial(run_pipeline, config_name = config_name, outcome_dim = outcome_dim, input_dim = input_dim), list(range(5))))
 
         torch.save(pca_acc_dict_l, output_path + config_name + "_pca_acc.pt")
         torch.save(st_acc_dict_l, output_path + config_name + "_st_acc.pt")
