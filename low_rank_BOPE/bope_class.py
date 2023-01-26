@@ -60,7 +60,6 @@ class BopeExperiment:
         "latent_dim": None,
         "min_stdv": 100000,
         "true_axes": None, # specify these for synthetic problems
-        "true_latent_dim": None # specify these for synthetic problems
     }
 
     def __init__(
@@ -96,6 +95,8 @@ class BopeExperiment:
         self.input_dim = problem._bounds.shape[-1]
         self.trial_idx = trial_idx
         self.output_path = output_path
+        if hasattr(self.problem, "true_axes"):
+            self.true_axes = self.problem.true_axes
 
         if "pca" in methods:
             # make sure to run pca first, so that the learned latent_dim
@@ -138,13 +139,7 @@ class BopeExperiment:
                 ),
             },
             # for synthetic problems only
-            "true_proj": {
-                "outcome_tf": LinearProjectionOutcomeTransform(self.true_axes),
-                "input_tf": LinearProjectionInputTransform(self.true_axes),
-                "covar_module": make_modified_kernel(
-                    ard_num_dims=self.true_latent_dim
-                ),
-            },
+            
             "mtgp": {
                 "outcome_tf": Standardize(self.outcome_dim),
                 "input_tf": Normalize(self.outcome_dim),
@@ -161,6 +156,14 @@ class BopeExperiment:
                 "covar_module": make_modified_kernel(ard_num_dims=self.outcome_dim),
             },
         }
+        if self.true_axes is not None:
+            self.transforms_covar_dict["true_proj"] = {
+                "outcome_tf": LinearProjectionOutcomeTransform(self.true_axes),
+                "input_tf": LinearProjectionInputTransform(self.true_axes),
+                "covar_module": make_modified_kernel(
+                    ard_num_dims=self.true_axes.shape[0]
+                ),
+            }
 
         # TODO: error handling -- maybe not needed
         self.passed = False
@@ -253,15 +256,15 @@ class BopeExperiment:
             ]
 
             # retain the corresponding columns in V
-            self.pcr_axes = torch.tensor(
-                torch.transpose(V[:, dims_to_keep], -2, -1))
+            self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep])).squeeze(-2)
+            print('self.pcr_axes.shape', self.pcr_axes.shape)
 
             # then plug these into LinearProjection O/I transforms
             self.transforms_covar_dict["pcr"] = {
                 "outcome_tf": LinearProjectionOutcomeTransform(self.pcr_axes),
                 "input_tf": LinearProjectionInputTransform(self.pcr_axes),
                 "covar_module": make_modified_kernel(
-                    ard_num_dims=self.latent_dim
+                    ard_num_dims=self.pcr_axes.shape[0]
                 ),
             }
             outcome_model = fit_outcome_model(

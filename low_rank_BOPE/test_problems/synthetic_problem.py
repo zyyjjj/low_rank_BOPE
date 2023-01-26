@@ -97,7 +97,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
             opt_config = [[0], [1]],
             initial_X = torch.Tensor([[0.1], [0.2], [0.3]]),
             bounds = torch.Tensor([[0,1]]),
-            ground_truth_principal_axes = torch.Tensor([[0.707, 0.707]]),
+            true_axes = torch.Tensor([[0.707, 0.707]]),
             noise_std = 0.01,
             PC_lengthscales = torch.Tensor([1]),
             PC_scaling_factors = torch.Tensor([1]),
@@ -110,7 +110,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         opt_config: Tuple[List],
         initial_X: torch.Tensor,
         bounds: torch.Tensor,
-        ground_truth_principal_axes: torch.Tensor,
+        true_axes: torch.Tensor,
         noise_std: float,
         PC_lengthscales: torch.Tensor,
         PC_scaling_factors: torch.Tensor,
@@ -127,7 +127,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
             initial_X: `num_initial_points x input_dim` tensor, initial inputs 
                 to warm-start the PC-generating model
             bounds: `input_dim x 2` tensor, bounds of input domain
-            ground_truth_principal_axes: `num_axes x output_dim` tensor
+            true_axes: `num_axes x output_dim` tensor
             noise_std: real number that represents the noise (SD) of the metrics
             PC_lengthscales: `num_PCs`-dimensional tensor, where the i-th entry 
                 specifies the kernel lengthscale for simulating the i-th PC;
@@ -149,11 +149,12 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         super().__init__(noise_std=noise_std, negate=negate)
 
         self.opt_config = opt_config
-        self.ground_truth_principal_axes = ground_truth_principal_axes
+        self.true_axes = true_axes
         self.PC_scaling_factors = PC_scaling_factors
         self.tkwargs = tkwargs
+        self.outcome_dim = true_axes.shape[-1]
 
-        num_axes = ground_truth_principal_axes.shape[0]
+        num_axes = true_axes.shape[0]
         num_initial_points = initial_X.shape[0]
 
         initial_PCs = torch.Tensor().to(**tkwargs)
@@ -198,7 +199,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         PC_sim = PC_sim * self.PC_scaling_factors
 
         metric_vals_noiseless = torch.matmul(
-            PC_sim, self.ground_truth_principal_axes.to(**self.tkwargs)
+            PC_sim, self.true_axes.to(**self.tkwargs)
         )
 
         return metric_vals_noiseless
@@ -249,7 +250,7 @@ def make_problem(**kwargs):
         "PC_noise_level": 0,
         "noise_std": 0.1,
         "num_initial_samples": 20,
-        "ground_truth_principal_axes": torch.Tensor([1]*20),
+        "true_axes": torch.Tensor([1]*20),
         "PC_lengthscales": [0.1],
         "PC_scaling_factors": [2],
         "dtype": torch.double,
@@ -271,15 +272,14 @@ def make_problem(**kwargs):
     obj_indices = list(range(config["outcome_dim"]))
     cons_indices = []
 
-    if len(config['ground_truth_principal_axes'].shape) == 1:
-        config['ground_truth_principal_axes'] = config['ground_truth_principal_axes'].unsqueeze(
-            0)
+    if len(config['true_axes'].shape) == 1:
+        config['true_axes'] = config['true_axes'].unsqueeze(0)
 
     problem = PCATestProblem(
         opt_config=(obj_indices, cons_indices),
         initial_X=initial_X,
         bounds=torch.Tensor([[0, 1]] * config["input_dim"]),
-        ground_truth_principal_axes=config['ground_truth_principal_axes'],
+        true_axes=config['true_axes'],
         noise_std=config["noise_std"],
         PC_lengthscales=Tensor(config["PC_lengthscales"]),
         PC_scaling_factors=Tensor(config["PC_scaling_factors"]),
