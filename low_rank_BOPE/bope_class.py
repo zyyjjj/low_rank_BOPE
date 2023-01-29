@@ -30,7 +30,9 @@ from gpytorch.priors.lkj_prior import LKJCovariancePrior
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            mc_max_util_error)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
-from low_rank_BOPE.src.pref_learning_helpers import (  # find_max_posterior_mean, # TODO: later see if we want the error-handled version; fit_pref_model, # TODO: later see if we want the error-handled version
+from low_rank_BOPE.src.pref_learning_helpers import (  
+    # find_max_posterior_mean, # TODO: later see if we want the error-handled version; 
+    # fit_pref_model, # TODO: later see if we want the error-handled version
     ModifiedFixedSingleSampleModel, fit_outcome_model, gen_comps, gen_exp_cand)
 from low_rank_BOPE.src.transforms import (InputCenter,
                                           LinearProjectionInputTransform,
@@ -106,7 +108,7 @@ class BopeExperiment:
             print('self.methods, ', self.methods)
         else:
             # if "pca" is not run and latent_dim is not specified
-            # must set self.latent_dim by hand
+            # set self.latent_dim by hand
             self.methods = methods
             if not self.latent_dim:
                 self.latent_dim = self.outcome_dim // 3
@@ -137,9 +139,7 @@ class BopeExperiment:
                         ),
                     }
                 ),
-            },
-            # for synthetic problems only
-            
+            },            
             "mtgp": {
                 "outcome_tf": Standardize(self.outcome_dim),
                 "input_tf": Normalize(self.outcome_dim),
@@ -156,6 +156,7 @@ class BopeExperiment:
                 "covar_module": make_modified_kernel(ard_num_dims=self.outcome_dim),
             },
         }
+        # for synthetic problems only, when we know the true outcome subspace
         if self.true_axes is not None:
             self.transforms_covar_dict["true_proj"] = {
                 "outcome_tf": LinearProjectionOutcomeTransform(self.true_axes),
@@ -164,10 +165,6 @@ class BopeExperiment:
                     ard_num_dims=self.true_axes.shape[0]
                 ),
             }
-
-        # TODO: error handling -- maybe not needed
-        self.passed = False
-        self.fit_count = 0
 
     def generate_random_experiment_data(self, n, compute_util: False):
         r"""Generate n observations of experimental designs and outcomes.
@@ -178,7 +175,7 @@ class BopeExperiment:
             X: `n x problem input dim` tensor of sampled inputs
             Y: `n x problem outcome dim` tensor of noisy evaluated outcomes at X
             util_vals: `n x 1` tensor of utility value of Y
-            comps: `n/2 x 2` tensor of pairwise comparisons # TODO: confirm
+            comps: `n/2 x 2` tensor of pairwise comparisons 
         """
 
         self.X = (
@@ -194,7 +191,10 @@ class BopeExperiment:
             self.comps = gen_comps(self.util_vals)
 
     def fit_outcome_model(self, method):
-
+        r"""Fit outcome model based on specified method.
+        Args:
+            method: string specifying the statistical model
+        """
         if method == "mtgp":
             outcome_model = KroneckerMultiTaskGP(
                 self.X,
@@ -207,11 +207,9 @@ class BopeExperiment:
             icm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
             )
-            # fit_gpytorch_model(icm_mll)
             fit_gpytorch_mll(icm_mll)
 
         elif method == "lmc":
-
             # TODO: check covariance LKJ prior here
             sd_prior = GammaPrior(1.0, 0.15)
             eta = 0.5
@@ -220,7 +218,7 @@ class BopeExperiment:
 
             lcm_kernel = LCMKernel(
                 base_kernels=[MaternKernel()] * self.latent_dim,
-                # TODO: Qing's comment: Here the base kernel is MaternKernel without setting ard_dim and prior. Is this intended?
+                # TODO: Qing's comment: set ard_dim and prior in the base kernel
                 num_tasks=self.outcome_dim,
                 rank=1,  # rank is 2 if method is lmc2
                 task_covar_prior=task_covar_prior,
@@ -245,16 +243,14 @@ class BopeExperiment:
             fit_gpytorch_mll(lcm_mll)
 
         elif method == "pcr":
-            P, S, V = torch.svd(self.Y)
+            P, _, V = torch.svd(self.Y)
 
             # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
-
             # select top k entries of PC_coeff
             dims_to_keep = np.argpartition(np.abs(reg.coef_), -self.latent_dim)[
                 -self.latent_dim:
             ]
-
             # retain the corresponding columns in V
             self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep])).squeeze(-2)
             print('self.pcr_axes.shape', self.pcr_axes.shape)
@@ -273,7 +269,7 @@ class BopeExperiment:
                 outcome_transform=self.transforms_covar_dict[method]["outcome_tf"],
             )
 
-        else:
+        else: # method is 'st' or 'pca'
             outcome_model = fit_outcome_model(
                 self.X,
                 self.Y,
@@ -281,9 +277,7 @@ class BopeExperiment:
             )
 
             if method == "pca":
-
                 self.pca_axes = outcome_model.outcome_transform["pca"].axes_learned
-
                 self.transforms_covar_dict["pca"]["input_tf"] = ChainedInputTransform(
                     **{
                         # "standardize": InputStandardize(config["outcome_dim"]),
@@ -294,14 +288,13 @@ class BopeExperiment:
                 )
 
                 self.latent_dim = self.pca_axes.shape[0]
-
                 print(
                     f"amount of variance explained by {self.latent_dim} axes: {outcome_model.outcome_transform['pca'].PCA_explained_variance}"
                 )
 
                 # here we first see how many latent dimensions PCA learn
-                # then we create a random linear projection mapping to the same dimensionality
-
+                # then create a random linear proj onto the same dimensionality
+                # similarly, set that as the cardinality of the random subset 
                 self.transforms_covar_dict["pca"]["covar_module"] = make_modified_kernel(
                     ard_num_dims=self.latent_dim
                 )
@@ -335,6 +328,12 @@ class BopeExperiment:
         comps,
         **model_kwargs
     ):
+        r"""Fit utility model based on given data and model_kwargs
+        Args:
+            Y: `num_samples x outcome_dim` tensor of outcomes
+            comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
+            model_kwargs: input transform and covar_module
+        """
         util_model = PairwiseGP(
             datapoints=Y, comparisons=comps, **model_kwargs)
 
@@ -397,8 +396,8 @@ class BopeExperiment:
                             acq_function=acqf,
                             q=2,
                             bounds=self.problem.bounds,
-                            num_restarts=8,
-                            raw_samples=64,  # used for intialization heuristic
+                            num_restarts=self.num_restarts,
+                            raw_samples=self.raw_samples,  # used for intialization heuristic
                             options={"batch_limit": 4, "seed": self.trial_idx},
                         )
                         cand_Y = one_sample_outcome_model(cand_X)
@@ -411,7 +410,8 @@ class BopeExperiment:
 
                 if not found_valid_candidate:
                     print(
-                        "optimize_acqf() failed 3 times for EUBO, stop current call of run_pref_learn()"
+                        f"optimize_acqf() failed 3 times for EUBO with {method},", 
+                        "stop current call of run_pref_learn()"
                     )
                     return train_Y, train_comps, None, acqf_vals
 
@@ -436,7 +436,6 @@ class BopeExperiment:
 
         self.pref_data_dict[method][pe_strategy] = (train_Y, train_comps)
 
-        # return train_Y, train_comps, pref_model_acc, acqf_vals
         # TODO: not logging pref_model_acc and acqf_vals now
 
     def find_max_posterior_mean(self, method, pe_strategy, num_pref_samples=1):
