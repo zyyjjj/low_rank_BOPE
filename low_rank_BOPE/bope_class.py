@@ -47,7 +47,7 @@ class BopeExperiment:
     attr_list = {
         "pca_var_threshold": 0.95,
         "initial_experimentation_batch": 16,
-        "n_check_post_mean": 1,  # TODO: change back
+        "n_check_post_mean": 20,
         "every_n_comps": 3,
         "verbose": True,
         "dtype": torch.double,
