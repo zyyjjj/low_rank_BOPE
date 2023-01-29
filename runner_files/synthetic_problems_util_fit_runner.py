@@ -136,7 +136,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
                 check_pca_model_fit_succeed = True
                 break
             except RuntimeError as e:
-                n_test /= 2
+                n_test = int(n_test / 2)
                 print(str(e), f'updated n_test = {n_test}')
                 continue
         if not check_pca_model_fit_succeed:
