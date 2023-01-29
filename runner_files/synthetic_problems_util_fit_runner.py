@@ -7,6 +7,7 @@ sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
 import multiprocessing
+from collections import defaultdict
 
 import torch
 from botorch import fit_gpytorch_mll
@@ -60,7 +61,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
         dtype=torch.double
     )
 
-    pca_acc_dict_alphas, st_acc_dict_alphas = defaultdict(dict)
+    pca_acc_dict_alphas, st_acc_dict_alphas = defaultdict(dict), defaultdict(dict)
 
     for alpha in [0, 0.2, 0.4, 0.6, 0.8, 1.0]:
 
@@ -81,6 +82,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
         problem = make_problem(
             input_dim = input_dim, 
             outcome_dim = outcome_dim,
+            noise_std = 0.5, 
             num_initial_samples = input_dim*outcome_dim,
             true_axes = true_axes,
             PC_lengthscales = [0.5]*rank,
@@ -109,60 +111,59 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
             likelihood=GaussianLikelihood(noise_prior=GammaPrior(0.9, 10)),
         )
         pca_mll = ExactMarginalLogLikelihood(pca_model.likelihood, pca_model)
-
         fit_gpytorch_mll(pca_mll)
-
         print('pca transform properties', pca_model.outcome_transform['pca'].__dict__)
 
+        # check pca model fit (with different linear transformations)
         pca_axes_dict = {
             "learned": pca_model.outcome_transform['pca'].axes_learned,
             "true": true_axes,
             "oracle": beta.transpose(-2, -1)
         }
- 
         pca_models_dict = fit_util_models_wrapper(
             train_Y, comps, util_vals, 
             method="pca", 
             axes_dict = pca_axes_dict, 
             modify_kernel = True
         )
-
+        check_pca_model_fit_succeed = False
         n_test = 400
         while n_test >= 50:
             try:
                 pca_acc_dict = check_util_model_fit_wrapper(
                     problem, util_func, pca_models_dict, n_test=n_test
                 )
+                check_pca_model_fit_succeed = True
                 break
             except RuntimeError as e:
-                print(str(e))
                 n_test /= 2
-                pca_acc_dict = check_util_model_fit_wrapper(
-                    problem, util_func, pca_models_dict, n_test=n_test
-                )
+                print(str(e), f'updated n_test = {n_test}')
+                continue
+        if not check_pca_model_fit_succeed:
+            pca_acc_dict = {}
 
+        # check independent GP model fit
         st_models_dict = fit_util_models_wrapper(
             train_Y, comps, util_vals, 
             method="st"
         )
-
+        check_st_model_fit_succeed = False
         n_test = 400
         while n_test >= 50:
             try:
                 st_acc_dict = check_util_model_fit_wrapper(
                     problem, util_func, st_models_dict, n_test=n_test
                 )
+                check_st_model_fit_succeed = True
                 break
             except RuntimeError as e:
                 print(str(e))
                 n_test /= 2
-                st_acc_dict = check_util_model_fit_wrapper(
-                    problem, util_func, st_models_dict, n_test=n_test
-                )
+        if not check_st_model_fit_succeed:
+            st_acc_dict = {}
         
         print('PCA learned axes shape', pca_model.outcome_transform['pca'].axes_learned.shape)
         pca_acc_dict['learned_latent_dim'] = pca_model.outcome_transform['pca'].axes_learned.shape[0]
-
         pca_acc_dict["alpha"] = alpha
         st_acc_dict["alpha"] = alpha
 
