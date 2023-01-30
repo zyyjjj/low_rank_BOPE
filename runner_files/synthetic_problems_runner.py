@@ -41,6 +41,7 @@ def run_pipeline(config_name, trial_idx, outcome_dim = 20, input_dim = 1):
     full_axes = generate_principal_axes(
         output_dim=outcome_dim,
         num_axes=outcome_dim,
+        seed = trial_idx,
         dtype=torch.double
     )
 
