@@ -13,7 +13,7 @@ from torch import Tensor
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
-def generate_principal_axes(output_dim: int, num_axes: int, **tkwargs) -> torch.Tensor:
+def generate_principal_axes(output_dim: int, num_axes: int, seed: int = None, **tkwargs) -> torch.Tensor:
     r"""
     Generate a desired number of orthonormal basis vectors in a space of specified dimension
     which will serve as principal axes for simulation.
@@ -28,6 +28,10 @@ def generate_principal_axes(output_dim: int, num_axes: int, **tkwargs) -> torch.
     """
 
     assert num_axes <= output_dim, "num_axes must not exceed output_dim"
+
+    if seed is None:
+        seed = 1234
+    np.random.seed(seed)
 
     inducing_array = np.random.rand(output_dim, num_axes)
     basis = scipy.linalg.orth(inducing_array).transpose()
