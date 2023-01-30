@@ -181,7 +181,7 @@ if __name__ == "__main__":
     input_dim = int(sys.argv[2])
     outcome_dim = int(sys.argv[3])
 
-    output_path = f"../experiments/util_fit_{input_dim}_{outcome_dim}/"
+    output_path = f"/home/yz685/low_rank_BOPE/experiments/util_fit_{input_dim}_{outcome_dim}/"
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
