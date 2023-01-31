@@ -33,6 +33,7 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from low_rank_BOPE.src.models import make_modified_kernel
 from low_rank_BOPE.src.transforms import InputCenter, PCAInputTransform
 from torch import Tensor
+import scipy
 
 # ======= Initial data generation =======
 
@@ -579,3 +580,53 @@ def inject_comp_error(comp, util_diff, comp_noise_type, comp_noise):
         if to_flip:
             flipped_comp[[0, 1]] = flipped_comp[[1, 0]]
     return flipped_comp
+
+
+def find_true_optimal_utility(
+    problem: torch.nn.Module, 
+    util_func: torch.nn.Module, 
+    maximize: bool = True
+):
+    r"""
+    Find the true optimal utility value, i.e., max_x (util_func(problem(x)))
+    Args:
+        problem: a TestProblem that maps designs to outcomes
+        util_func: maps outcomes to scalar utility
+        maximize: boolean for whether to maximize (if False, minimize)
+    """
+
+    bounds = list(map(tuple, problem._bounds.numpy()))
+
+    print('problem.bounds', problem._bounds)
+    print('bounds', bounds)
+
+    # define function to be minimized using scipy.optimize.minimize
+    def util_of_design(x):
+        # x is a 1d array with shape (d, )
+        # convert it to tensor and compute its utility
+        x_tensor = torch.Tensor(x)
+        outcomes = problem.evaluate_true(x_tensor)
+        util = util_func(outcomes)
+        if maximize:
+            util *= -1
+    
+        print('x_tensor, outcomes, util shape: ', x_tensor.shape, outcomes.shape, util.shape)
+
+        return util.item()
+    
+    # x0 = problem._bounds.mean(dim = 1)
+    # print('x0: ', x0)
+    # print('problem.bounds.mean(dim=0): ', problem.bounds.mean(dim=0))
+    # print('problem._bounds.mean(dim=1): ', problem._bounds.mean(dim=1))
+
+    x0 = [0.0]
+    
+    res = scipy.optimize.minimize(util_of_design, x0, bounds = bounds)
+
+    if res.success:
+        print('best design: ', res.x, 'best utility: ', res.fun)
+        return [res.x, res.fun]
+        # TODO: it's not optimizing, always returns initial x0
+    else:
+        print('Failed to find the true optimal utility value')
+        return None
