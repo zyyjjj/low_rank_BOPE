@@ -33,7 +33,8 @@ from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
 from low_rank_BOPE.src.pref_learning_helpers import (  
     # find_max_posterior_mean, # TODO: later see if we want the error-handled version; 
     # fit_pref_model, # TODO: later see if we want the error-handled version
-    ModifiedFixedSingleSampleModel, fit_outcome_model, gen_comps, gen_exp_cand)
+    ModifiedFixedSingleSampleModel, fit_outcome_model, gen_comps, gen_exp_cand,
+    find_true_optimal_utility)
 from low_rank_BOPE.src.transforms import (InputCenter,
                                           LinearProjectionInputTransform,
                                           LinearProjectionOutcomeTransform,
@@ -165,6 +166,9 @@ class BopeExperiment:
                     ard_num_dims=self.true_axes.shape[0]
                 ),
             }
+        
+        # compute true optimal utility
+        self.true_opt = find_true_optimal_utility(self.problem, self.util_func)
 
     def generate_random_experiment_data(self, n, compute_util: False):
         r"""Generate n observations of experimental designs and outcomes.
@@ -413,7 +417,8 @@ class BopeExperiment:
                         f"optimize_acqf() failed 3 times for EUBO with {method},", 
                         "stop current call of run_pref_learn()"
                     )
-                    return train_Y, train_comps, None, acqf_vals
+                    # return train_Y, train_comps, None, acqf_vals
+                    return
 
             elif pe_strategy == "Random-f":
                 # Random-f
@@ -431,10 +436,12 @@ class BopeExperiment:
             cand_comps = gen_comps(self.util_func(cand_Y))
 
             train_comps = torch.cat(
-                (train_comps, cand_comps + train_Y.shape[0]))
+                (train_comps, cand_comps + train_Y.shape[0])
+            )
             train_Y = torch.cat((train_Y, cand_Y))
+            print('train_Y, train_comps shape: ', train_Y.shape, train_comps.shape)
 
-        self.pref_data_dict[method][pe_strategy] = (train_Y, train_comps)
+            self.pref_data_dict[method][pe_strategy] = (train_Y, train_comps)
 
         # TODO: not logging pref_model_acc and acqf_vals now
 
@@ -541,6 +548,9 @@ class BopeExperiment:
                 util_func=self.util_func,
                 n_test=1000
             )
+        
+        # log the true optimal utility computed in __init__()
+        exp_result["true_opt"] = self.true_opt
 
         self.final_candidate_results[method][pe_strategy] = exp_result
 

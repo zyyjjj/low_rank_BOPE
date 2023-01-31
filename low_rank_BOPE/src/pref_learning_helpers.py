@@ -10,6 +10,7 @@ sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
 from typing import Dict, Optional, Tuple
+import numpy as np
 
 import torch
 from botorch import fit_gpytorch_mll
@@ -597,9 +598,6 @@ def find_true_optimal_utility(
 
     bounds = list(map(tuple, problem._bounds.numpy()))
 
-    print('problem.bounds', problem._bounds)
-    print('bounds', bounds)
-
     # define function to be minimized using scipy.optimize.minimize
     def util_of_design(x):
         # x is a 1d array with shape (d, )
@@ -614,19 +612,15 @@ def find_true_optimal_utility(
 
         return util.item()
     
-    # x0 = problem._bounds.mean(dim = 1)
-    # print('x0: ', x0)
-    # print('problem.bounds.mean(dim=0): ', problem.bounds.mean(dim=0))
-    # print('problem._bounds.mean(dim=1): ', problem._bounds.mean(dim=1))
-
-    x0 = [0.0]
+    x0 = np.array(problem._bounds.mean(dim = 1))
+    print('x0: ', x0)
     
-    res = scipy.optimize.minimize(util_of_design, x0, bounds = bounds)
+    res = scipy.optimize.minimize(util_of_design, x0, bounds = bounds, options = {'eps': 1e-3})
+    print(res)
 
     if res.success:
         print('best design: ', res.x, 'best utility: ', res.fun)
         return [res.x, res.fun]
-        # TODO: it's not optimizing, always returns initial x0
     else:
         print('Failed to find the true optimal utility value')
         return None
