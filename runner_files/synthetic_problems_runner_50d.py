@@ -7,15 +7,7 @@ sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
 import torch
-from botorch import fit_gpytorch_mll
-from botorch.models import SingleTaskGP
-from botorch.models.transforms.outcome import (ChainedOutcomeTransform,
-                                               Standardize)
-from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.priors import GammaPrior
 from low_rank_BOPE.bope_class import BopeExperiment
-from low_rank_BOPE.src.pref_learning_helpers import gen_initial_real_data
 from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, generate_principal_axes, make_controlled_coeffs, make_problem)
 
@@ -24,7 +16,7 @@ experiment_configs = {
     "rank_2_linear": [2,1],
     "rank_4_linear": [4,2,2,1],
     # "rank_6_linear": [8,4,4,2,2,1],
-    # "rank_8_linear": [16,8,8,4,4,2,2,1],
+    "rank_8_linear": [8,8,4,4,4,2,2,1],
     # TODO later: add nonlinear utility functions
 }
 
@@ -97,7 +89,7 @@ if __name__ == "__main__":
         run_pipeline(
             config_name = config_name,
             trial_idx = trial_idx,
-            outcome_dim = 20,
+            outcome_dim = 50,
             input_dim = 1,
             noise_std = 0.1
         )

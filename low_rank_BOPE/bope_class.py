@@ -409,9 +409,9 @@ class BopeExperiment:
 
                         found_valid_candidate = True
                         break
-                    except (ValueError, RuntimeError):
+                    except (ValueError, RuntimeError) as error:
+                        print("error in optimizing EUBO: ", error)
                         continue
-
                 if not found_valid_candidate:
                     print(
                         f"optimize_acqf() failed 3 times for EUBO with {method},", 
