@@ -22,7 +22,7 @@ experiment_configs = {
 
 
 
-def run_pipeline(config_name, trial_idx, outcome_dim = 20, input_dim = 1, noise_std = 0.1):
+def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kwargs):
 
     _, rank, util_type = config_name.split('_')
     rank = int(rank)
@@ -75,7 +75,8 @@ def run_pipeline(config_name, trial_idx, outcome_dim = 20, input_dim = 1, noise_
                 "Random-f"
             ],
             trial_idx = trial_idx,
-            output_path = output_path
+            output_path = output_path,
+            **kwargs
         )
         experiment.run_BOPE_loop()
 
@@ -91,7 +92,8 @@ if __name__ == "__main__":
             trial_idx = trial_idx,
             outcome_dim = 50,
             input_dim = 1,
-            noise_std = 0.1
+            noise_std = 0.1,
+            n_check_post_mean = 13
         )
 
     # TODO: can I replace absolute path with script directory, like

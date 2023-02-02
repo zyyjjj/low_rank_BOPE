@@ -7,15 +7,7 @@ sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
 import torch
-from botorch import fit_gpytorch_mll
-from botorch.models import SingleTaskGP
-from botorch.models.transforms.outcome import (ChainedOutcomeTransform,
-                                               Standardize)
-from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.priors import GammaPrior
 from low_rank_BOPE.bope_class import BopeExperiment
-from low_rank_BOPE.src.pref_learning_helpers import gen_initial_real_data
 from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, generate_principal_axes, make_controlled_coeffs, make_problem)
 
@@ -30,7 +22,7 @@ experiment_configs = {
 
 
 
-def run_pipeline(config_name, trial_idx, outcome_dim = 20, input_dim = 1, noise_std = 0.1):
+def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kwargs):
 
     _, rank, util_type = config_name.split('_')
     rank = int(rank)
@@ -83,7 +75,8 @@ def run_pipeline(config_name, trial_idx, outcome_dim = 20, input_dim = 1, noise_
                 "Random-f"
             ],
             trial_idx = trial_idx,
-            output_path = output_path
+            output_path = output_path,
+            **kwargs
         )
         experiment.run_BOPE_loop()
 
@@ -99,7 +92,8 @@ if __name__ == "__main__":
             trial_idx = trial_idx,
             outcome_dim = 20,
             input_dim = 1,
-            noise_std = 0.1
+            noise_std = 0.1,
+            # n_check_post_mean = 20
         )
 
     # TODO: can I replace absolute path with script directory, like
