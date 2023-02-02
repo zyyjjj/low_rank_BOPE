@@ -10,8 +10,9 @@ sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
 from typing import Dict, Optional, Tuple
-import numpy as np
 
+import numpy as np
+import scipy
 import torch
 from botorch import fit_gpytorch_mll
 from botorch.acquisition import LearnedObjective
@@ -34,7 +35,6 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from low_rank_BOPE.src.models import make_modified_kernel
 from low_rank_BOPE.src.transforms import InputCenter, PCAInputTransform
 from torch import Tensor
-import scipy
 
 # ======= Initial data generation =======
 
@@ -602,7 +602,7 @@ def find_true_optimal_utility(
     def util_of_design(x):
         # x is a 1d array with shape (d, )
         # convert it to tensor and compute its utility
-        x_tensor = torch.Tensor(x)
+        x_tensor = torch.Tensor(x).unsqueeze(0)
         outcomes = problem.evaluate_true(x_tensor)
         util = util_func(outcomes)
         if maximize:
