@@ -612,7 +612,7 @@ def find_true_optimal_utility(
 
         return util.item()
     
-    x0 = np.array(problem._bounds.mean(dim = 1))
+    x0 = np.array(problem._bounds.to(torch.double).mean(dim = 1))
     print('x0: ', x0)
     
     res = scipy.optimize.minimize(util_of_design, x0, bounds = bounds, options = {'eps': 1e-3})
