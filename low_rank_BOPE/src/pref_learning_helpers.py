@@ -608,8 +608,6 @@ def find_true_optimal_utility(
         if maximize:
             util *= -1
     
-        print('x_tensor, outcomes, util shape: ', x_tensor.shape, outcomes.shape, util.shape)
-
         return util.item()
     
     x0 = np.array(problem._bounds.to(torch.double).mean(dim = 1))

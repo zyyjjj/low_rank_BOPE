@@ -19,20 +19,23 @@ if __name__ == "__main__":
     util_func = RiskMeasureUtil(util_func_key="mean_plus_sd", lambdaa=0.8)
     problem_name = f"portfolio_w=uniform_{n_w_samples}_util=mean_plus_sd_0.8"
 
-    output_path = os.path.join(
-        os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "experiments",
-        problem_name,
-        "/"
-    )
+    # output_path = os.path.join(
+    #     os.path.dirname(os.path.dirname(
+    #         os.path.abspath(__file__))), "experiments",
+    #     problem_name,
+    #     "/"
+    # )
+
+    output_path = "/home/yz685/low_rank_BOPE/experiments/" + problem_name + "/"
 
     experiment = BopeExperiment(
         problem,
         util_func,
-        methods=["st", "pca", "pcr", "true_proj"],
+        methods=["st", "pca", "pcr"],
         pe_strategies=["EUBO-zeta", "Random-f"],
         trial_idx=trial_idx,
-        output_path=output_path
+        output_path=output_path,
+        n_check_post_mean = 13
     )
     experiment.run_BOPE_loop()
     

@@ -30,11 +30,9 @@ from gpytorch.priors.lkj_prior import LKJCovariancePrior
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            mc_max_util_error)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
-from low_rank_BOPE.src.pref_learning_helpers import (  
-    # find_max_posterior_mean, # TODO: later see if we want the error-handled version; 
-    # fit_pref_model, # TODO: later see if we want the error-handled version
-    ModifiedFixedSingleSampleModel, fit_outcome_model, gen_comps, gen_exp_cand,
-    find_true_optimal_utility)
+from low_rank_BOPE.src.pref_learning_helpers import (  # find_max_posterior_mean, # TODO: later see if we want the error-handled version;; fit_pref_model, # TODO: later see if we want the error-handled version
+    ModifiedFixedSingleSampleModel, find_true_optimal_utility,
+    fit_outcome_model, gen_comps, gen_exp_cand)
 from low_rank_BOPE.src.transforms import (InputCenter,
                                           LinearProjectionInputTransform,
                                           LinearProjectionOutcomeTransform,
@@ -255,9 +253,10 @@ class BopeExperiment:
             dims_to_keep = np.argpartition(np.abs(reg.coef_), -self.latent_dim)[
                 -self.latent_dim:
             ]
+            print('dims_to_keep: ', dims_to_keep)
             # retain the corresponding columns in V
-            self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep])).squeeze(-2)
-            print('self.pcr_axes.shape', self.pcr_axes.shape)
+            self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep]))
+            print('self.pcr_axes.shape: ', self.pcr_axes.shape)
 
             # then plug these into LinearProjection O/I transforms
             self.transforms_covar_dict["pcr"] = {
@@ -589,6 +588,8 @@ class BopeExperiment:
 
         for pe_strategy in self.pe_strategies:
 
+            print(f"===== Running PE using {method} with {pe_strategy} =====")
+
             self.PE_session_results[method][pe_strategy] = []
 
             self.PE_session_results[method][pe_strategy].append(
@@ -602,6 +603,7 @@ class BopeExperiment:
 
     def run_second_experimentation_stage(self, method):
         for pe_strategy in self.pe_strategies:
+            print(f"===== Generating final candidate using {method} with {pe_strategy} =====")
             self.generate_final_candidate(method, pe_strategy)
 
 
