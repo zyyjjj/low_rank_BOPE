@@ -6,6 +6,7 @@ import random
 from collections import defaultdict
 from typing import List
 
+import botorch
 import gpytorch
 import numpy as np
 import torch
@@ -27,6 +28,8 @@ from gpytorch.mlls.exact_marginal_log_likelihood import \
     ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
 from gpytorch.priors.lkj_prior import LKJCovariancePrior
+from sklearn.linear_model import LinearRegression
+
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            mc_max_util_error)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
@@ -40,7 +43,6 @@ from low_rank_BOPE.src.transforms import (InputCenter,
                                           PCAOutcomeTransform,
                                           SubsetOutcomeTransform,
                                           generate_random_projection)
-from sklearn.linear_model import LinearRegression
 
 
 class BopeExperiment:
@@ -102,8 +104,7 @@ class BopeExperiment:
         if "pca" in methods:
             # make sure to run pca first, so that the learned latent_dim
             # informs the other methods with dim reduction
-            methods.remove("pca")
-            self.methods = ["pca"] + methods
+            self.methods = ["pca"] + [m for m in methods if m != "pca"]
             print('self.methods, ', self.methods)
         else:
             # if "pca" is not run and latent_dim is not specified
@@ -252,7 +253,7 @@ class BopeExperiment:
             # select top k entries of PC_coeff
             dims_to_keep = np.argpartition(np.abs(reg.coef_), -self.latent_dim)[
                 -self.latent_dim:
-            ]
+            ][0]
             print('dims_to_keep: ', dims_to_keep)
             # retain the corresponding columns in V
             self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep]))
@@ -383,41 +384,42 @@ class BopeExperiment:
                 )
 
             if pe_strategy == "EUBO-zeta":
-                # EUBO-zeta
-                one_sample_outcome_model = ModifiedFixedSingleSampleModel(
-                    model=self.outcome_models_dict[method],
-                    outcome_dim=train_Y.shape[-1]
-                )
-                acqf = AnalyticExpectedUtilityOfBestOption(
-                    pref_model=pref_model,
-                    outcome_model=one_sample_outcome_model
-                )
-                found_valid_candidate = False
-                for _ in range(3):
-                    try:
-                        cand_X, acqf_val = optimize_acqf(
-                            acq_function=acqf,
-                            q=2,
-                            bounds=self.problem.bounds,
-                            num_restarts=self.num_restarts,
-                            raw_samples=self.raw_samples,  # used for intialization heuristic
-                            options={"batch_limit": 4, "seed": self.trial_idx},
-                        )
-                        cand_Y = one_sample_outcome_model(cand_X)
-                        acqf_vals.append(acqf_val.item())
-
-                        found_valid_candidate = True
-                        break
-                    except (ValueError, RuntimeError) as error:
-                        print("error in optimizing EUBO: ", error)
-                        continue
-                if not found_valid_candidate:
-                    print(
-                        f"optimize_acqf() failed 3 times for EUBO with {method},", 
-                        "stop current call of run_pref_learn()"
+                with botorch.settings.debug(state=True):
+                    # EUBO-zeta
+                    one_sample_outcome_model = ModifiedFixedSingleSampleModel(
+                        model=self.outcome_models_dict[method],
+                        outcome_dim=train_Y.shape[-1]
                     )
-                    # return train_Y, train_comps, None, acqf_vals
-                    return
+                    acqf = AnalyticExpectedUtilityOfBestOption(
+                        pref_model=pref_model,
+                        outcome_model=one_sample_outcome_model
+                    )
+                    found_valid_candidate = False
+                    for _ in range(3):
+                        try:
+                            cand_X, acqf_val = optimize_acqf(
+                                acq_function=acqf,
+                                q=2,
+                                bounds=self.problem.bounds,
+                                num_restarts=self.num_restarts,
+                                raw_samples=self.raw_samples,  # used for intialization heuristic
+                                options={"batch_limit": 4, "seed": self.trial_idx},
+                            )
+                            cand_Y = one_sample_outcome_model(cand_X)
+                            acqf_vals.append(acqf_val.item())
+
+                            found_valid_candidate = True
+                            break
+                        except (ValueError, RuntimeError) as error:
+                            print("error in optimizing EUBO: ", error)
+                            continue
+                    if not found_valid_candidate:
+                        print(
+                            f"optimize_acqf() failed 3 times for EUBO with {method},", 
+                            "stop current call of run_pref_learn()"
+                        )
+                        # return train_Y, train_comps, None, acqf_vals
+                        return
 
             elif pe_strategy == "Random-f":
                 # Random-f
@@ -560,7 +562,7 @@ class BopeExperiment:
                 bounds=self.problem.bounds,
                 n=1,
                 q=2*n,
-                seed=self.trial_idx  # TODO: confirm
+                seed=self.trial_idx 
             )
             .squeeze(0)
             .to(torch.double)
