@@ -149,3 +149,5 @@ if __name__ == "__main__":
     outputs = extract_data(problems, range(21))
 
     plot_candidate_over_comps("rank_1_linear_1_20_0.2_0.1", problems, outputs, '$EUBO-\zeta$', methods = ["st", "pca", "pcr", "true_proj"])
+
+    # TODO: after this is done, replace the notebooks
