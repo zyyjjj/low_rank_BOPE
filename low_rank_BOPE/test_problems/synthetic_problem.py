@@ -249,7 +249,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         batch = X.ndimension() > 1
         X = X if batch else X.unsqueeze(0)
         f = self.evaluate_true(X=X)
-        latent_vars_shape = f.shape
+        latent_vars_shape = list(f.shape)
         latent_vars_shape[-1] = self.latent_dim # TODO: double check
 
         if noise and self.noise_std is not None:
@@ -257,7 +257,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
                 # generate indep noise on PC and project to outcome space
                 noise = torch.matmul(
                     # torch.randn_like(self.gen_model_PC.posterior(X).mean), 
-                    torch.randn_like(latent_vars_shape), # TODO: double check shape correct
+                    torch.randn(latent_vars_shape), # TODO: double check shape correct
                     self.true_axes.to(**self.tkwargs)
                 )
                 if len(self.opt_config[0]) == 1:
@@ -267,7 +267,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
             else:
                 # generate indep noise on outcomes directly
                 noise = torch.randn_like(f)
-            f = f + self.noise_std + noise
+            f = f + self.noise_std * noise
         if self.negate:
             f = -f
         return f if batch else f.squeeze(0)
@@ -290,7 +290,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         # be empty, but putting correlated noise case here for completeness
 
         cons = self.evaluate_slack_true(X=X)
-        latent_vars_shape = cons.shape
+        latent_vars_shape = list(cons.shape)
         latent_vars_shape[-1] = self.latent_dim # TODO: double check
 
         if noise and self.noise_std is not None:
@@ -298,7 +298,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
                 # generate indep noise on PC and project to outcome space
                 noise = torch.matmul(
                     # torch.randn_like(self.gen_model_PC.posterior(X).mean), 
-                    torch.randn_like(latent_vars_shape), # TODO: double check shape correct
+                    torch.randn(latent_vars_shape), # TODO: double check shape correct
                     self.true_axes.to(**self.tkwargs)
                 )
                 if len(self.opt_config[1]) == 1:

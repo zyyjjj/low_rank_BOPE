@@ -22,7 +22,11 @@ experiment_configs = {
 
 
 
-def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kwargs):
+def run_pipeline(
+    config_name, trial_idx, outcome_dim, input_dim, noise_std, 
+    methods = ["st", "pca", "pcr", "true_proj"],
+    pe_strategies = ["EUBO-zeta", "Random-f"],
+    **kwargs):
 
     _, rank, util_type = config_name.split('_')
     rank = int(rank)
@@ -38,6 +42,8 @@ def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kw
     )
 
     for alpha in [0, 0.2, 0.4, 0.6, 0.8, 1.0]: 
+
+        print(f"=============== Running alpha={alpha} ===============")
 
         beta = make_controlled_coeffs(
             full_axes=full_axes,
@@ -64,16 +70,13 @@ def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kw
         )
 
         output_path = "/home/yz685/low_rank_BOPE/experiments/" + \
-            f"{config_name}_{input_dim}_{outcome_dim}_{noise_std}/"
+            f"{config_name}_{input_dim}_{outcome_dim}_{alpha}_{noise_std}/"
 
         experiment = BopeExperiment(
             problem, 
             util_func, 
-            methods = ["st", "pca", "pcr", "true_proj"],
-            pe_strategies = [
-                "EUBO-zeta", 
-                "Random-f"
-            ],
+            methods = methods,
+            pe_strategies = pe_strategies,
             trial_idx = trial_idx,
             output_path = output_path,
             **kwargs
@@ -87,13 +90,17 @@ if __name__ == "__main__":
     trial_idx = int(sys.argv[1])
 
     for config_name in experiment_configs:
+        print(f"================ Running {config_name} ================")
+
         run_pipeline(
             config_name = config_name,
             trial_idx = trial_idx,
             outcome_dim = 20,
             input_dim = 1,
             noise_std = 0.1,
-            # n_check_post_mean = 20
+            n_check_post_mean = 13,
+            methods=["st", "pca", "pcr", "true_proj"], # TODO: debugging
+            pe_strategies=["EUBO-zeta"] # TODO: debugging
         )
 
     # TODO: can I replace absolute path with script directory, like

@@ -10,6 +10,7 @@ import torch
 from low_rank_BOPE.bope_class import BopeExperiment
 from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, generate_principal_axes, make_controlled_coeffs, make_problem)
+import argparse
 
 experiment_configs = {
     "rank_1_linear": [2],
@@ -22,7 +23,11 @@ experiment_configs = {
 
 
 
-def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kwargs):
+def run_pipeline(
+    config_name, trial_idx, outcome_dim, input_dim, noise_std, 
+    methods = ["st", "pca", "pcr", "true_proj"],
+    pe_strategies = ["EUBO-zeta", "Random-f"],
+    **kwargs):
 
     _, rank, util_type = config_name.split('_')
     rank = int(rank)
@@ -38,6 +43,8 @@ def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kw
     )
 
     for alpha in [0, 0.2, 0.4, 0.6, 0.8, 1.0]: 
+
+        print(f"=============== Running alpha={alpha} ===============")
 
         beta = make_controlled_coeffs(
             full_axes=full_axes,
@@ -64,16 +71,15 @@ def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kw
         )
 
         output_path = "/home/yz685/low_rank_BOPE/experiments/" + \
-            f"{config_name}_{input_dim}_{outcome_dim}_{noise_std}/"
+            f"{config_name}_{input_dim}_{outcome_dim}_{alpha}_{noise_std}/"
+
+        print("methods to plug into BopeExperiment: ", methods)
 
         experiment = BopeExperiment(
             problem, 
             util_func, 
-            methods = ["st", "pca", "pcr", "true_proj"],
-            pe_strategies = [
-                "EUBO-zeta", 
-                "Random-f"
-            ],
+            methods = methods,
+            pe_strategies = pe_strategies,
             trial_idx = trial_idx,
             output_path = output_path,
             **kwargs
@@ -81,19 +87,33 @@ def run_pipeline(config_name, trial_idx, outcome_dim, input_dim, noise_std, **kw
         experiment.run_BOPE_loop()
 
 
+def parse():
+    # experiment-running params -- read from command line input
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--trial_idx", type = int, default = 0)
+    parser.add_argument("--input_dim", type = int, default = 1)
+    parser.add_argument("--outcome_dim", type = int, default = 50)
+    parser.add_argument("--noise_std", type = float, default = 0.1)
+    parser.add_argument("--n_check_post_mean", type = int, default = 13)
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
 
-    # experiment-running params -- read from command line input
-    trial_idx = int(sys.argv[1])
+    args = parse()
 
     for config_name in experiment_configs:
+        print(f"================ Running {config_name} ================")
         run_pipeline(
             config_name = config_name,
-            trial_idx = trial_idx,
-            outcome_dim = 50,
-            input_dim = 1,
-            noise_std = 0.1,
-            n_check_post_mean = 13
+            trial_idx = args.trial_idx,
+            outcome_dim = args.outcome_dim,
+            input_dim = args.input_dim,
+            noise_std = args.noise_std,
+            n_check_post_mean = args.n_check_post_mean, 
+            methods=["st", "pca", "true_proj"], 
+            pe_strategies=["EUBO-zeta"] 
         )
 
     # TODO: can I replace absolute path with script directory, like
