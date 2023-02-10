@@ -12,13 +12,14 @@ from matplotlib.pyplot import plt
 from matplotlib.ticker import MaxNLocator
 
 from collections import defaultdict
+from typing import Dict, List
 
 
-def extract_data(problems, trials_range):
+def extract_data(problem_names, trials_range):
 
     outputs = defaultdict(lambda: defaultdict(dict))
 
-    for problem in problems:
+    for problem in problem_names:
 
         results_folder = f'/home/yz685/low_rank_BOPE/experiments/{problem}/'
 
@@ -27,22 +28,20 @@ def extract_data(problems, trials_range):
             try:
 
                 outputs[problem]['exp_candidate_results'][trial] = \
-                    list(vv for v in torch.load(results_folder + f'final_candidate_results_trial={trial}.th').values() for vv in v.values())
-                
+                    list(vv for v in torch.load(
+                        results_folder + f'final_candidate_results_trial={trial}.th'
+                        ).values() for vv in v.values())
+                    
                 outputs[problem]['within_session_results'][trial] = \
-                    list(itertools.chain.from_iterable(vv for v in torch.load(results_folder + f'PE_session_results_trial={trial}.th').values() for vv in v.values()))
+                    list(itertools.chain.from_iterable(
+                        vv for v in torch.load(
+                            results_folder + f'PE_session_results_trial={trial}.th'
+                            ).values() for vv in v.values()))
             
             except FileNotFoundError:
                 continue
         
     return outputs
-
-
-BASE_CONFIG = {
-    "initial_experimentation_batch": 16,
-    "n_check_post_mean": 13, # TODO: try not to hardcode this
-    "every_n_comps": 3,
-}
 
 colors_dict = {
     "pca": "tab:red", 
@@ -67,11 +66,27 @@ labels_dict = {
 }
 
 
-def plot_candidate_over_comps(problem, problems, outputs, pe_strategy, methods = ["st", "pca", "random_linear_proj", "random_subset", "mtgp"]):
+def plot_candidate_over_comps(
+    problem: str, 
+    problems_dict: str, 
+    outputs: Dict, 
+    pe_strategy: str, 
+    methods: List[str],
+    save_fig_path: str,
+):
+    r"""
+    Plot true utility of posterior mean utility maximizing design over PE comps.
+    Args:
+        problem: 
+        problems_dict:
+        outputs:
+        pe_strategy:
+        methods:
+        save_fig_path:
+    """
 
     # TODO: improve the naming of variables
     # TODO: add docs
-
 
     f, axs = plt.subplots(1, 1, figsize=(8, 6))
 
@@ -81,11 +96,8 @@ def plot_candidate_over_comps(problem, problems, outputs, pe_strategy, methods =
         "random_linear_proj": 0.2, "random_subset": 0.3, 
         "mtgp": 0.75, "lmc1": 0.4, "lmc2": 0.5, 
         "pcr": 0.05, "true_proj": 0.15}
-
-    every_n_comps = BASE_CONFIG["every_n_comps"]
-    n_check_post_mean = BASE_CONFIG["n_check_post_mean"]
     
-    input_dim, outcome_dim = problems[problem]
+    input_dim, outcome_dim = problems_dict[problem]
 
     within_session_results = [res 
                               for i in outputs[problem]['within_session_results'].keys() 
@@ -121,8 +133,6 @@ def plot_candidate_over_comps(problem, problems, outputs, pe_strategy, methods =
                     color=colors_dict[name[0]],
                 )
 
-                # ax1.legend(title="Transform + PE Strategy", bbox_to_anchor=(1, 0.8))
-
                 axs.set_xlabel("Number of comparisons")
                 axs.set_title(
                     f"{problem}\n d={input_dim}, k={outcome_dim}", fontsize=16
@@ -133,6 +143,7 @@ def plot_candidate_over_comps(problem, problems, outputs, pe_strategy, methods =
     axs.legend(loc="lower left", ncol=5, fontsize=15)
 
     # TODO: save under /plots/
+    plt.savefig(save_fig_path + problem + ".pdf")
 
 
 
@@ -140,6 +151,7 @@ if __name__ == "__main__":
 
 
     # TODO: update this
+    # then move to a separate file "plotter_synthetic.py"
     problems = {
         "rank_1_linear_1_20_0.2_0.1": (1, 20),
         "rank_2_linear_1_20_0.2_0.1": (1, 20),
@@ -148,6 +160,13 @@ if __name__ == "__main__":
 
     outputs = extract_data(problems, range(21))
 
-    plot_candidate_over_comps("rank_1_linear_1_20_0.2_0.1", problems, outputs, '$EUBO-\zeta$', methods = ["st", "pca", "pcr", "true_proj"])
+    save_fig_path = "/home/yz685/low_rank_BOPE/plots/synthetic/"
 
-    # TODO: after this is done, replace the notebooks
+    plot_candidate_over_comps(
+        problem = "rank_1_linear_1_20_0.2_0.1", 
+        problems_dict = problems, 
+        outputs = outputs, 
+        pe_strategy = "$EUBO-\zeta$", 
+        methods = ["st", "pca", "pcr", "true_proj"],
+        save_fig_path = save_fig_path
+    )
