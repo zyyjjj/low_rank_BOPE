@@ -72,7 +72,7 @@ def run_pipeline(
             PC_scaling_factors = experiment_configs[config_name]
         )
 
-        output_path = "/home/yz685/low_rank_BOPE/experiments/" + \
+        output_path = "/home/yz685/low_rank_BOPE/experiments/synthetic/" + \
             f"{config_name}_{input_dim}_{outcome_dim}_{alpha}_{noise_std}/"
 
         print("methods to plug into BopeExperiment: ", methods)

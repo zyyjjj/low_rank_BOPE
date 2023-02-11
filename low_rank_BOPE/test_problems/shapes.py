@@ -24,6 +24,7 @@ class Image(SyntheticTestFunction):
         super().__init__()
         self.num_pixels = num_pixels
         self.pixel_size = 1 / self.num_pixels
+        self.outcome_dim = num_pixels ** 2
     
     def evaluate_true(self, X):
         r"""
@@ -54,7 +55,7 @@ class Image(SyntheticTestFunction):
             
             Y[sample_idx, paint_it_black] = torch.ones(1, len(paint_it_black))
 
-        return Y
+        return Y.to(torch.double)
 
 
 # utility function
