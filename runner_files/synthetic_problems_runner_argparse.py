@@ -6,11 +6,12 @@ sys.path.append(file_dir)
 sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
+import argparse
+
 import torch
 from low_rank_BOPE.bope_class import BopeExperiment
 from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, generate_principal_axes, make_controlled_coeffs, make_problem)
-import argparse
 
 experiment_configs = {
     "rank_1_linear": [2],
@@ -27,6 +28,7 @@ def run_pipeline(
     config_name, trial_idx, outcome_dim, input_dim, noise_std, 
     methods = ["st", "pca", "pcr", "true_proj"],
     pe_strategies = ["EUBO-zeta", "Random-f"],
+    alphas = [0, 0.2, 0.4, 0.6, 0.8, 1.0],
     **kwargs):
 
     _, rank, util_type = config_name.split('_')
@@ -42,7 +44,7 @@ def run_pipeline(
         dtype=torch.double
     )
 
-    for alpha in [0, 0.2, 0.4, 0.6, 0.8, 1.0]: 
+    for alpha in alphas: 
 
         print(f"=============== Running alpha={alpha} ===============")
 
