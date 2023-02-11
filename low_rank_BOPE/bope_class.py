@@ -28,8 +28,6 @@ from gpytorch.mlls.exact_marginal_log_likelihood import \
     ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
 from gpytorch.priors.lkj_prior import LKJCovariancePrior
-from sklearn.linear_model import LinearRegression
-
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            mc_max_util_error)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
@@ -43,6 +41,7 @@ from low_rank_BOPE.src.transforms import (InputCenter,
                                           PCAOutcomeTransform,
                                           SubsetOutcomeTransform,
                                           generate_random_projection)
+from sklearn.linear_model import LinearRegression
 
 
 class BopeExperiment:
@@ -250,10 +249,8 @@ class BopeExperiment:
 
             # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
-            # select top k entries of PC_coeff
-            dims_to_keep = np.argpartition(np.abs(reg.coef_), -self.latent_dim)[
-                -self.latent_dim:
-            ][0]
+            # select top `self.latent_dim` entries of PC_coeff
+            dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.latent_dim:]
             print('dims_to_keep: ', dims_to_keep)
             # retain the corresponding columns in V
             self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep]))
@@ -356,6 +353,7 @@ class BopeExperiment:
 
             print(
                 f"Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
+            print("train_Y, train_comps: ", train_Y, train_comps)
 
             fit_model_succeed = False
             pref_model_acc = None
