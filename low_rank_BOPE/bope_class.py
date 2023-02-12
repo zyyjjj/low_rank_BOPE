@@ -250,8 +250,11 @@ class BopeExperiment:
             # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
             # select top `self.latent_dim` entries of PC_coeff
-            dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.latent_dim:][0]
+            dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.latent_dim:]
             print('dims_to_keep: ', dims_to_keep)
+            if len(dims_to_keep.shape) == 2:
+                dims_to_keep = dims_to_keep[0]
+            print('dims_to_keep after processing: ', dims_to_keep) # TODO: check correctness
             # retain the corresponding columns in V
             self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep]))
             print('self.pcr_axes.shape: ', self.pcr_axes.shape)

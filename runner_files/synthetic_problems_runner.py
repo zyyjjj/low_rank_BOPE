@@ -114,8 +114,9 @@ if __name__ == "__main__":
             input_dim = args.input_dim,
             noise_std = args.noise_std,
             n_check_post_mean = args.n_check_post_mean, 
-            methods=["st", "pca", "true_proj"], 
-            pe_strategies=["EUBO-zeta"] 
+            methods=["st", "pca", "true_proj", "pcr"], 
+            pe_strategies=["EUBO-zeta"],
+            alphas=[0, 0.5, 1]
         )
 
     # TODO: can I replace absolute path with script directory, like

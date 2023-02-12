@@ -58,7 +58,7 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     def __init__(
         self,
         noise_std: Optional[float] = None,
-        negate: bool = False,
+        negate: bool = True,
         n_w_samples = 50,
         w_distribution: str = "uniform",
     ) -> None:
