@@ -596,7 +596,16 @@ def find_true_optimal_utility(
         maximize: boolean for whether to maximize (if False, minimize)
     """
 
-    bounds = list(map(tuple, problem._bounds.numpy()))
+    print("problem._bounds: ", problem._bounds)
+    if problem._bounds.shape[0] == 2:
+        bounds = list(map(tuple, torch.transpose(problem._bounds, -2, -1).numpy()))
+        x0 = np.array(problem._bounds.to(torch.double).mean(dim = 0))
+    else:
+        bounds = list(map(tuple, problem._bounds.numpy()))
+        x0 = np.array(problem._bounds.to(torch.double).mean(dim = 1))
+    
+    print('x0: ', x0)
+    print("bounds: ", bounds)
 
     # define function to be minimized using scipy.optimize.minimize
     def util_of_design(x):
@@ -610,8 +619,7 @@ def find_true_optimal_utility(
     
         return util.item()
     
-    x0 = np.array(problem._bounds.to(torch.double).mean(dim = 1))
-    print('x0: ', x0)
+
     
     res = scipy.optimize.minimize(util_of_design, x0, bounds = bounds, options = {'eps': 1e-3})
     print(res)
