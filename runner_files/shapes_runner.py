@@ -54,6 +54,7 @@ def parse():
 if __name__ == "__main__":
 
     args = parse()
+    print("Parsed args: ", args)
 
     run_pipeline(
         trial_idx = args.trial_idx,

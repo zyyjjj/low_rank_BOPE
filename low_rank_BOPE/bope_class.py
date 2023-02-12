@@ -250,7 +250,7 @@ class BopeExperiment:
             # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(np.array(P), np.array(self.util_vals))
             # select top `self.latent_dim` entries of PC_coeff
-            dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.latent_dim:]
+            dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.latent_dim:][0]
             print('dims_to_keep: ', dims_to_keep)
             # retain the corresponding columns in V
             self.pcr_axes = torch.tensor(np.transpose(V[:, dims_to_keep]))
@@ -353,7 +353,7 @@ class BopeExperiment:
 
             print(
                 f"Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
-            print("train_Y, train_comps: ", train_Y, train_comps)
+            print("train_Y, train_comps shapes: ", train_Y.shape, train_comps.shape)
 
             fit_model_succeed = False
             pref_model_acc = None
@@ -387,11 +387,11 @@ class BopeExperiment:
                     one_sample_outcome_model = ModifiedFixedSingleSampleModel(
                         model=self.outcome_models_dict[method],
                         outcome_dim=train_Y.shape[-1]
-                    )
+                    ).to(torch.double) #TODO: debugging
                     acqf = AnalyticExpectedUtilityOfBestOption(
                         pref_model=pref_model,
                         outcome_model=one_sample_outcome_model
-                    )
+                    ).to(torch.double)  # TODO: debugging
                     found_valid_candidate = False
                     for _ in range(3):
                         try:

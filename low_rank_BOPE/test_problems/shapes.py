@@ -18,7 +18,7 @@ class Image(SyntheticTestFunction):
     Class for generating rectangle images
     """
     dim = 4
-    _bounds = torch.tensor([[0, 1], [0, 1], [0, 1], [0,1]])
+    _bounds = torch.tensor([[0., 1.], [0., 1.], [0., 1.], [0.,1.]])
 
     def __init__(self, num_pixels: int = 16):
         super().__init__()
