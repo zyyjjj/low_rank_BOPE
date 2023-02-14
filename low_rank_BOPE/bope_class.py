@@ -27,7 +27,6 @@ from gpytorch.kernels import LCMKernel, MaternKernel
 from gpytorch.mlls.exact_marginal_log_likelihood import \
     ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
-from gpytorch.priors.lkj_prior import LKJCovariancePrior
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            mc_max_util_error)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
@@ -197,6 +196,7 @@ class BopeExperiment:
         Args:
             method: string specifying the statistical model
         """
+        print(f"Fitting outcome model using {method}")
         if method == "mtgp":
             outcome_model = KroneckerMultiTaskGP(
                 self.X,
@@ -212,28 +212,11 @@ class BopeExperiment:
             fit_gpytorch_mll(icm_mll)
 
         elif method == "lmc":
-            # TODO: check covariance LKJ prior here
-            sd_prior = GammaPrior(1.0, 0.15)
-            eta = 0.5
-            task_covar_prior = LKJCovariancePrior(
-                self.outcome_dim, eta, sd_prior)
-
-            lcm_kernel = LCMKernel(
-                base_kernels=[MaternKernel()] * self.latent_dim,
-                # TODO: Qing's comment: set ard_dim and prior in the base kernel
-                num_tasks=self.outcome_dim,
-                rank=1,  # rank is 2 if method is lmc2
-                task_covar_prior=task_covar_prior,
-            )
-            lcm_likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(
-                num_tasks=self.outcome_dim
-            )
             outcome_model = MultitaskGPModel(
-                self.X,
-                self.Y,
-                lcm_likelihood,
-                num_tasks=self.outcome_dim,
-                multitask_kernel=lcm_kernel,
+                train_X = self.X,
+                train_Y = self.Y,
+                latent_dim = self.latent_dim,
+                rank = 1,
                 outcome_transform=copy.deepcopy(
                     self.transforms_covar_dict[method]["outcome_tf"]
                 ),
@@ -603,6 +586,7 @@ class BopeExperiment:
                 self.PE_session_results[method][pe_strategy].append(
                     self.find_max_posterior_mean(method, pe_strategy)
                 )
+            
 
     def run_second_experimentation_stage(self, method):
         for pe_strategy in self.pe_strategies:

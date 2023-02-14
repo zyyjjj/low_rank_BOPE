@@ -1,21 +1,22 @@
-import torch
-from torch import Tensor
+from typing import Optional
+
 import gpytorch
-from botorch.fit import fit_gpytorch_model, fit_gpytorch_mll
+import torch
+from botorch.fit import fit_gpytorch_mll, fit_gpytorch_model
 from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.model import Model
-from gpytorch import ExactMarginalLogLikelihood
-from gpytorch.kernels import Kernel, LCMKernel, MaternKernel, RBFKernel, ScaleKernel
-from gpytorch.likelihoods import Likelihood
-from gpytorch.models import ExactGP
-from gpytorch.priors.torch_priors import GammaPrior
-from gpytorch.priors import SmoothedBoxPrior
-from gpytorch.constraints import GreaterThan, Interval
-
-from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.models.transforms.input import InputTransform
-
-
+from botorch.models.transforms.outcome import OutcomeTransform
+from gpytorch import ExactMarginalLogLikelihood
+from gpytorch.constraints import GreaterThan, Interval
+from gpytorch.kernels import (Kernel, LCMKernel, MaternKernel, RBFKernel,
+                              ScaleKernel)
+from gpytorch.likelihoods import Likelihood, MultitaskGaussianLikelihood
+from gpytorch.models import ExactGP
+from gpytorch.priors import SmoothedBoxPrior
+from gpytorch.priors.lkj_prior import LKJCovariancePrior
+from gpytorch.priors.torch_priors import GammaPrior, Prior
+from torch import Tensor
 
 
 def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
@@ -48,11 +49,12 @@ class MultitaskGPModel(GPyTorchModel, ExactGP):
         self,
         train_X: Tensor,
         train_Y: Tensor,
-        likelihood: Likelihood,
-        num_tasks: int,
-        multitask_kernel: Kernel,
-        outcome_transform: OutcomeTransform = None,
-        input_transform: InputTransform = None,
+        latent_dim: int,
+        rank: Optional[int] = None,
+        task_covar_prior: Optional[Prior] = None,
+        likelihood: Optional[MultitaskGaussianLikelihood] = None,
+        outcome_transform: Optional[OutcomeTransform] = None,
+        input_transform: Optional[InputTransform] = None,
     ):
 
         r"""
@@ -61,9 +63,7 @@ class MultitaskGPModel(GPyTorchModel, ExactGP):
         Args:
             train_X: `num_samples x input_dim` tensor
             train_Y: `num_samples x outcome_dim` tensor
-            likelihood: Gpytorch likelihood
-            num_tasks: number of outcomes
-            multitask_kernel: a multi-output kernel
+            latent_dim: number of basis kernels to use
             outcome_transform: OutcomeTransform
             input_transform: InputTransform
 
@@ -75,8 +75,21 @@ class MultitaskGPModel(GPyTorchModel, ExactGP):
             )
         if outcome_transform is not None:
             train_Y, _ = outcome_transform(train_Y)
+        if rank is None:
+            rank = 1
         self._validate_tensor_args(X=transformed_X, Y=train_Y)
-        self._num_outputs = num_tasks
+        self._num_outputs = train_Y.shape[-1]
+        
+        ard_num_dims, num_tasks = train_X.shape[-1], train_Y.shape[-1]
+
+        if task_covar_prior is None:
+            sd_prior = GammaPrior(1.0, 0.15)
+            eta = 0.5
+            task_covar_prior = LKJCovariancePrior(num_tasks, eta, sd_prior)
+    
+        if likelihood is None:            
+            likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(
+                num_tasks=num_tasks)
 
         super().__init__(
             train_inputs=train_X, train_targets=train_Y, likelihood=likelihood
@@ -85,7 +98,20 @@ class MultitaskGPModel(GPyTorchModel, ExactGP):
         self.mean_module = gpytorch.means.MultitaskMean(
             gpytorch.means.ConstantMean(), num_tasks=num_tasks
         )
-        self.covar_module = multitask_kernel
+
+        self.covar_module = LCMKernel(
+            base_kernels=[MaternKernel(
+                nu = 2.5,
+                ard_num_dims = ard_num_dims,
+                lengthscale_prior = GammaPrior(3.0, 6.0)
+            )] * latent_dim,
+            num_tasks=num_tasks,
+            rank=rank,
+            # task_covar_prior=task_covar_prior, # not using task covar prior for now 
+            # related issue https://github.com/cornellius-gp/gpytorch/issues/2263
+        )
+
+        self.to(train_X)
 
     def forward(self, x: Tensor):
         r"""
