@@ -256,10 +256,14 @@ def check_outcome_model_fit(
     # run outcome model posterior prediction on test data
     test_posterior_mean = outcome_model.posterior(test_X).mean
 
-    # compute mean squared error
-    mse = ((test_posterior_mean - test_Y)**2).mean(axis=0).detach().sum().item()
+    # compute relative mean squared error
+    mse = ((test_posterior_mean - test_Y)**2 / test_Y**2).mean(axis=0).detach().sum().item()
 
-    return mse
+    se_rel = torch.sum((test_posterior_mean - test_Y) ** 2, dim=1) / torch.sum(test_Y**2, dim=1)
+    print(se_rel.shape)
+    mse_rel = se_rel.mean(axis=0).item()
+
+    return mse_rel
 
 
 def check_util_model_fit(

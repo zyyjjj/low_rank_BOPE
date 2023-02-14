@@ -97,6 +97,10 @@ def parse():
     parser.add_argument("--outcome_dim", type = int, default = 50)
     parser.add_argument("--noise_std", type = float, default = 0.1)
     parser.add_argument("--n_check_post_mean", type = int, default = 13)
+    parser.add_argument("--methods", type = str, nargs = "+", 
+        default = ["st", "pca", "pcr", "true_proj"])
+    parser.add_argument("--pe_strategies", type = str, nargs = "+", 
+        default = ["EUBO-zeta"])
 
     return parser.parse_args()
 
@@ -114,8 +118,8 @@ if __name__ == "__main__":
             input_dim = args.input_dim,
             noise_std = args.noise_std,
             n_check_post_mean = args.n_check_post_mean, 
-            methods=["st", "pca", "true_proj", "pcr"], 
-            pe_strategies=["EUBO-zeta"],
+            methods = args.methods,
+            pe_strategies = args.pe_strategies,
             alphas=[0, 0.5, 1]
         )
 

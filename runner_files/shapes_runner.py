@@ -47,6 +47,10 @@ def parse():
     parser.add_argument("--trial_idx", type = int, default = 0)
     parser.add_argument("--n_pixels", type = int, default = 16)
     parser.add_argument("--n_check_post_mean", type = int, default = 13)
+    parser.add_argument("--methods", type = str, nargs = "+", 
+        default = ["st", "pca", "pcr"])
+    parser.add_argument("--pe_strategies", type = str, nargs = "+", 
+        default = ["EUBO-zeta"])
 
     return parser.parse_args()
 
@@ -60,15 +64,8 @@ if __name__ == "__main__":
         trial_idx = args.trial_idx,
         n_pixels=args.n_pixels,
         n_check_post_mean = args.n_check_post_mean, 
-        methods=[
-            "st", 
-            "pca", 
-            "pcr"
-        ], 
-        pe_strategies=[
-            "EUBO-zeta", 
-            "Random-f" 
-        ] 
+        methods=args.methods, 
+        pe_strategies=args.pe_strategies
     )
 
     # TODO: can I replace absolute path with script directory, like
