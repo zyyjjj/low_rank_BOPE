@@ -15,7 +15,7 @@ from low_rank_BOPE.test_problems.synthetic_problem import (
 
 experiment_configs = {
     "rank_1_linear": [2],
-    "rank_2_linear": [2,1],
+    # "rank_2_linear": [2,1],
     "rank_4_linear": [4,2,2,1],
     # "rank_6_linear": [8,4,4,2,2,1],
     "rank_8_linear": [8,8,4,4,4,2,2,1],
@@ -101,6 +101,9 @@ def parse():
         default = ["st", "pca", "pcr", "true_proj"])
     parser.add_argument("--pe_strategies", type = str, nargs = "+", 
         default = ["EUBO-zeta"])
+    parser.add_argument("--alphas", type = float, nargs = "+", 
+        default = [0, 0.5, 1])
+    parser.add_argument("--pca_var_threshold", type = float, default = 0.9)
 
     return parser.parse_args()
 
@@ -120,7 +123,8 @@ if __name__ == "__main__":
             n_check_post_mean = args.n_check_post_mean, 
             methods = args.methods,
             pe_strategies = args.pe_strategies,
-            alphas=[0, 0.5, 1]
+            alphas=args.alphas,
+            pca_var_threshold = args.pca_var_threshold
         )
 
     # TODO: can I replace absolute path with script directory, like

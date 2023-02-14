@@ -3,12 +3,10 @@
 # https://github.com/facebookresearch/preference-exploration/blob/main/test_functions.py
 
 import torch
-
 # from botorch.distributions.distributions import Kumaraswamy # TODO: fix this later
 from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.test_functions.multi_objective import DTLZ2, VehicleSafety
 from torch import Tensor
-
 
 # probit noise such that the DM makes 10% error for top 10% utilty using random X
 probit_noise_dict = {
@@ -667,6 +665,7 @@ class AugmentedProblem(MultiObjectiveTestProblem):
 
         super().__init__()
         self.base_problem = problem
+        self.dim = problem.dim
         self.base_outcome_dim = problem.num_objectives
         self.noise = noise
         self.bounds = problem.bounds

@@ -18,6 +18,11 @@ def parse():
     parser.add_argument("--trial_idx", type = int, default = 0)
     parser.add_argument("--noise_std", type = float, default = 0.01)
     parser.add_argument("--n_check_post_mean", type = int, default = 13)
+    parser.add_argument("--methods", type = str, nargs = "+", 
+        default = ["st", "pca", "pcr", "true_proj"])
+    parser.add_argument("--pe_strategies", type = str, nargs = "+", 
+        default = ["EUBO-zeta"])
+    parser.add_argument("--pca_var_threshold", type = float, default = 0.9)
 
     return parser.parse_args()
 
@@ -46,13 +51,11 @@ if __name__ == "__main__":
         experiment = BopeExperiment(
             problem, 
             util_func, 
-            methods = ["st", "pca", "pcr"],
-            pe_strategies = [
-                "EUBO-zeta", 
-                "Random-f"
-            ],
+            methods = args.methods,
+            pe_strategies = args.pe_strategies,
             trial_idx = args.trial_idx,
             n_check_post_mean = args.n_check_post_mean,
-            output_path = output_path
+            output_path = output_path,
+            pca_var_threshold = args.pca_var_threshold
         )
         experiment.run_BOPE_loop()
