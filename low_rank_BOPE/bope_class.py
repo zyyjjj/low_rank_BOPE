@@ -26,6 +26,8 @@ from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.sampling import draw_sobol_samples
 from gpytorch.mlls.exact_marginal_log_likelihood import \
     ExactMarginalLogLikelihood
+from sklearn.linear_model import LinearRegression
+
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            check_util_model_fit,
                                            mc_max_outcome_error,
@@ -41,7 +43,6 @@ from low_rank_BOPE.src.transforms import (InputCenter,
                                           PCAOutcomeTransform,
                                           SubsetOutcomeTransform,
                                           generate_random_projection)
-from sklearn.linear_model import LinearRegression
 
 
 class BopeExperiment:
@@ -88,9 +89,11 @@ class BopeExperiment:
             setattr(self, key, self.attr_list[key])
         for key in kwargs.keys():
             setattr(self, key, kwargs[key])
+        
+        print("BopeExperiment settings: ", self.attr_list)
 
         # pre-specified experiment metadata
-        self.problem = problem
+        self.problem = problem.double()
         self.util_func = util_func
         self.pe_strategies = pe_strategies
         self.outcome_dim = problem.outcome_dim
@@ -210,7 +213,7 @@ class BopeExperiment:
                 outcome_transform=copy.deepcopy(
                     self.transforms_covar_dict[method]["outcome_tf"]
                 ),
-                rank=3,  # TODO: update
+                rank=1,  # TODO: update
             )
             icm_mll = ExactMarginalLogLikelihood(
                 outcome_model.likelihood, outcome_model
@@ -647,15 +650,19 @@ class BopeExperiment:
         )
 
         for method in self.methods:
-            print(f"============= Running {method} =============")
-            self.run_first_experimentation_stage(method)
-            self.run_PE_stage(method)
-            self.run_second_experimentation_stage(method)
+            try:
+                print(f"============= Running {method} =============")
+                self.run_first_experimentation_stage(method)
+                self.run_PE_stage(method)
+                self.run_second_experimentation_stage(method)
 
-        
-            torch.save(self.PE_session_results, self.output_path +
-                    'PE_session_results_trial=' + str(self.trial_idx) + '.th')
-            torch.save(self.final_candidate_results, self.output_path +
-                    'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
-            torch.save(self.outcome_model_fitting_results, self.output_path +
-                    'outcome_model_fitting_results_trial=' + str(self.trial_idx) + '.th')
+            
+                torch.save(self.PE_session_results, self.output_path +
+                        'PE_session_results_trial=' + str(self.trial_idx) + '.th')
+                torch.save(self.final_candidate_results, self.output_path +
+                        'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
+                torch.save(self.outcome_model_fitting_results, self.output_path +
+                        'outcome_model_fitting_results_trial=' + str(self.trial_idx) + '.th')
+            except:
+                print(f"============= {method} failed, skipping =============")
+                continue

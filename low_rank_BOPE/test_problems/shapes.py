@@ -45,9 +45,9 @@ class Image(SyntheticTestFunction):
 
             # swap if needed
             if row_start > row_end:
-                row_start, row_end = swap(row_start, row_end)
+                row_start, row_end = row_end, row_start
             if col_start > col_end:
-                col_start, col_end = swap(col_start, col_end)
+                col_start, col_end = col_end, col_start
             
             paint_it_black = [self.num_pixels * r + c \
                     for r in range(min(row_start, self.num_pixels-1), min(row_end+1, self.num_pixels)) \

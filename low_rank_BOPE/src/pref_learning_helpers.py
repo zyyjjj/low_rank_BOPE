@@ -32,9 +32,10 @@ from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.sampling import draw_sobol_samples
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from torch import Tensor
+
 from low_rank_BOPE.src.models import make_modified_kernel
 from low_rank_BOPE.src.transforms import InputCenter, PCAInputTransform
-from torch import Tensor
 
 # ======= Initial data generation =======
 
@@ -393,7 +394,9 @@ class ModifiedFixedSingleSampleModel(DeterministicModel):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         post = self.model.posterior(X)
 
-        return post.mean + post.variance.sqrt() * self.w.to(X)
+        # return post.mean + post.variance.sqrt() * self.w.to(X)
+        # adding jitter to avoid numerical issues
+        return post.mean + torch.sqrt(post.variance + 1e-8) * self.w.to(X)
 
 
 def run_pref_learn(

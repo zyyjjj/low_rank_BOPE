@@ -155,6 +155,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
 
         self._bounds = bounds
         self.input_dim = bounds.shape[0]
+        self.dim = bounds.shape[0]
         super().__init__(noise_std=noise_std, negate=negate)
 
         self.opt_config = opt_config
