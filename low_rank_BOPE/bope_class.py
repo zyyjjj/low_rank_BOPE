@@ -188,7 +188,7 @@ class BopeExperiment:
         """
 
         self.X = (
-            draw_sobol_samples(bounds=self.problem.bounds, n=1, q=n)
+            draw_sobol_samples(bounds=self.problem.bounds, n=1, q=n, seed=self.trial_idx)
             .squeeze(0)
             .to(torch.double)
             .detach()
