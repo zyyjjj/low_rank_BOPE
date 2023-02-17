@@ -39,7 +39,7 @@ def generate_principal_axes(output_dim: int, num_axes: int, seed: int = None, **
     return torch.tensor(basis, **tkwargs)
 
 
-def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps, **tkwargs):
+def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps,seed, **tkwargs):
     """
     Create norm-1 vectors with a specified norm in the subspace
     spanned by a specified set of axes.
@@ -60,6 +60,7 @@ def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps, **tkwargs):
     """
 
     k = full_axes.shape[0]
+    torch.manual_seed(seed)
 
     # first generate vectors lying in the latent space with norm alpha
     # z1 is `latent_dim x n_reps`, V1 is `outcome_dim x latent_dim`
