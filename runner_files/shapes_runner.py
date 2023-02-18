@@ -6,9 +6,9 @@ sys.path.append(file_dir)
 sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
-import argparse
-
 import torch
+import yaml
+
 from low_rank_BOPE.bope_class import BopeExperiment
 from low_rank_BOPE.test_problems.shapes import AreaUtil, Image
 
@@ -41,38 +41,21 @@ def run_pipeline(
     experiment.run_BOPE_loop()
 
 
-def parse():
-    # experiment-running params -- read from command line input
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--trial_idx", type = int, default = 0)
-    parser.add_argument("--n_pixels", type = int, default = 16)
-    parser.add_argument("--n_check_post_mean", type = int, default = 13)
-    parser.add_argument("--methods", type = str, nargs = "+", 
-        default = ["st", "pca", "pcr"])
-    parser.add_argument("--pe_strategies", type = str, nargs = "+", 
-        default = ["EUBO-zeta"])
-
-    return parser.parse_args()
-
-
 if __name__ == "__main__":
 
-    args = parse()
-    print("Parsed args: ", args)
+    # read trial_idx from command line input
+    trial_idx = int(sys.argv[1])
+    # read experiment config from yaml file
+    args = yaml.load(open(sys.argv[2]), Loader = yaml.FullLoader)
+
+    print("Experiment args: ", args)
 
     run_pipeline(
-        trial_idx = args.trial_idx,
-        n_pixels=args.n_pixels,
-        n_check_post_mean = args.n_check_post_mean, 
-        methods=args.methods, 
-        pe_strategies=args.pe_strategies
+        trial_idx = trial_idx,
+        n_pixels=args["n_pixels"],
+        n_check_post_mean = args["n_check_post_mean"], 
+        methods=args["methods"], 
+        pe_strategies=args["pe_strategies"],
+        pca_var_threshold = args["pca_var_threshold"],
+        initial_experimentation_batch = args["init_exp_batch"],
     )
-
-    # TODO: can I replace absolute path with script directory, like
-    # script_dir = os.path.dirname(os.path.abspath(__file__))
-    # what's the difference between this and 
-    # file_dir = os.path.dirname(__file__) ??
-    # if output_path is None:
-        # output_path = os.path.join(
-        #     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exp_output"
-        # )
