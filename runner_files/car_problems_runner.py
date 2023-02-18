@@ -23,8 +23,8 @@ if __name__ == "__main__":
     for problem_setup_name in args["problem_setup_names"]:
 
         input_dim, outcome_dim, problem, _, util_func, _, _ = problem_setup_augmented(
-            problem_setup_name, augmented_dims_noise=args["noise_std"], noisy=True
-            # TODO: maybe need seed
+            problem_setup_name, augmented_dims_noise=args["noise_std"], noisy=True,
+            problem_seed = args["problem_seed"]
         )
 
         output_path = f"/home/yz685/low_rank_BOPE/experiments/cars/{problem_setup_name}_"\

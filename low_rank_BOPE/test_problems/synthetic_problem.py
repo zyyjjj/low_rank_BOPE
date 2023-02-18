@@ -1,4 +1,4 @@
-from typing import List, Tuple, Type
+from typing import List, Optional, Tuple, Type
 
 import numpy as np
 import scipy.linalg
@@ -13,7 +13,7 @@ from torch import Tensor
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
-def generate_principal_axes(output_dim: int, num_axes: int, seed: int = None, **tkwargs) -> Tensor:
+def generate_principal_axes(output_dim: int, num_axes: int, seed: Optional[int] = None, **tkwargs) -> Tensor:
     r"""
     Generate a desired number of orthonormal basis vectors in a space of specified dimension
     which will serve as principal axes for simulation.
@@ -39,7 +39,14 @@ def generate_principal_axes(output_dim: int, num_axes: int, seed: int = None, **
     return torch.tensor(basis, **tkwargs)
 
 
-def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps,seed, **tkwargs):
+def make_controlled_coeffs(
+    full_axes: Tensor, 
+    latent_dim: int, 
+    alpha: float, 
+    n_reps: int, 
+    seed: Optional[int] = None, 
+    **tkwargs
+):
     """
     Create norm-1 vectors with a specified norm in the subspace
     spanned by a specified set of axes.
@@ -60,6 +67,8 @@ def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps,seed, **tkwargs)
     """
 
     k = full_axes.shape[0]
+    if seed is None:
+        seed=1234
     torch.manual_seed(seed)
 
     # first generate vectors lying in the latent space with norm alpha
@@ -332,16 +341,16 @@ def make_problem(**kwargs):
         "PC_lengthscales": [0.1],
         "PC_scaling_factors": [2],
         "dtype": torch.double,
-        "np_seed": 1234,
-        "torch_seed": 1234
+        "problem_seed": 1234,
     }
 
     # overwrite config settings with kwargs
     for key, val in kwargs.items():
-        config[key] = val
+        if val is not None:
+            config[key] = val
 
-    np.random.seed(config["np_seed"])
-    torch.manual_seed(config["torch_seed"])
+    np.random.seed(config["problem_seed"])
+    torch.manual_seed(config["problem_seed"])
     torch.autograd.set_detect_anomaly(True)
 
     initial_X = torch.randn(
