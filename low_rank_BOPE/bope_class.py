@@ -90,7 +90,7 @@ class BopeExperiment:
         for key in kwargs.keys():
             setattr(self, key, kwargs[key])
         
-        print("BopeExperiment settings: ", self.attr_list)
+        print("BopeExperiment settings: ", self.__dict__)
 
         # pre-specified experiment metadata
         self.problem = problem.double()

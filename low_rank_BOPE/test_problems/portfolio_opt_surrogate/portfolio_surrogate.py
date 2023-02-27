@@ -61,11 +61,12 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
         negate: bool = True,
         n_w_samples = 50,
         w_distribution: str = "uniform",
+        w_bounds: Tensor = torch.tensor([[0, 0], [1, 1]])
     ) -> None:
         super().__init__(noise_std=noise_std, negate=negate)
         self.model = None
         # self.w_samples = w_samples_dict[w_distribution]
-        self.w_samples = generate_w_samples(n=n_w_samples, distribution=w_distribution)
+        self.w_samples = generate_w_samples(bounds=w_bounds, n=n_w_samples, distribution=w_distribution)
         self.outcome_dim = n_w_samples
         print('self.w_samples.shape', self.w_samples.shape)
 
