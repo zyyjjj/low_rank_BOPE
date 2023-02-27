@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 import torch
 from botorch.test_functions.synthetic import SyntheticTestFunction
 from torch import Tensor
+import numpy as np
 
 # outcome function
 
@@ -24,7 +25,7 @@ class Image(SyntheticTestFunction):
         Args:
             X: 4-dimensional input
         Returns:
-            Y: 256-dimensional array representing 16x16 images
+            Y: (num_pixels^2)-dimensional array representing the images
         """
 
         # map real values in X to integer indices of pixels
@@ -32,7 +33,7 @@ class Image(SyntheticTestFunction):
 
         Y = torch.zeros((*X.shape[:-1], self.num_pixels**2))
 
-        for sample_idx in range(X.shape[-2]): # TODO: there could be shape erros
+        for sample_idx in range(X.shape[-2]):
 
             row_start, col_start, row_end, col_end = pixel_idcs[sample_idx].numpy().astype(int)
 
@@ -71,25 +72,57 @@ class AreaUtil(torch.nn.Module):
 
 
 class GradientAwareAreaUtil(torch.nn.Module):
-    def __init__(self, penalty_param: float):
+    r"""
+    Compute sum of pixel values penalized by the sum of difference between
+    neighboring pixels pairs.
+    """
+    def __init__(self, penalty_param: float, image_shape: Tuple[float] = None):
         r"""
         
         """
-        pass
+        super().__init__()
+        self.penalty_param = penalty_param
+        self.image_shape = image_shape
+
+    def compute_abs_gradient_sum(self, Y: Tensor):
+
+        # TODO: check shape correctness
+
+        nrows, ncols = self.image_shape
+
+        res_all = []
+        
+        for y in Y:
+            res = 0
+            for row_idx in range(nrows):
+                for col_idx in range(ncols):
+                    i = row_idx * ncols + col_idx
+                    if row_idx < nrows-1:
+                        res += np.abs(y[i] - y[i+ncols])
+                    if col_idx < ncols-1: 
+                        res += np.abs(y[i] - y[i+1])
+            res_all.append(res.item())
+
+        return torch.tensor(res_all).unsqueeze(1)
 
     def forward(self, Y: Tensor):
         r"""
         
         """
-        pass
+        
+        areas = torch.sum(Y, dim = 1).unsqueeze(1)
+        abs_grad_sum = self.compute_abs_gradient_sum(Y)
+
+        return areas - self.penalty_param * abs_grad_sum
 
 
 
 # https://leetcode.com/problems/maximal-rectangle/solutions/264737/maximal-rectangle/ 
+# https://leetcode.com/problems/largest-rectangle-in-histogram/editorial/ 
 class LargestRectangleUtil(torch.nn.Module):
     r"""
     Compute the area of the largest rectangle in a binary image array, which
-    is first binarized from a grayscale image array.
+    is first rounded from a grayscale image array.
     """
     def __init__(self, image_shape: Tuple[float] = None):
         super().__init__()
@@ -113,9 +146,8 @@ class LargestRectangleUtil(torch.nn.Module):
 
     def maximalRectangle(self, matrix: Tensor) -> int:
 
-        # TODO: need to make sure syntax is all correct
-
-        if not matrix: return 0
+        if torch.sum(matrix).item() == 0:
+            return 0
 
         maxarea = 0
         dp = [0] * len(matrix[0])
@@ -136,7 +168,8 @@ class LargestRectangleUtil(torch.nn.Module):
         # then need to un-flatten outcome vector into image
 
         if self.image_shape is None:
-            self.image_shape = (torch.sqrt(Y.shape[-1]), torch.sqrt(Y.shape[-1]))
+            num_pixels = np.sqrt(Y.shape[-1])
+            self.image_shape = (num_pixels, num_pixels)
 
         result = []
         for y_bin in Y_bin:
@@ -147,7 +180,7 @@ class LargestRectangleUtil(torch.nn.Module):
 
 if __name__ == "__main__":
 
-    NUM_PIXELS = 16
+    NUM_PIXELS = 8
 
     image_problem = Image(num_pixels = NUM_PIXELS)
     test_X = torch.tensor(
@@ -170,9 +203,22 @@ if __name__ == "__main__":
         ])
 
     Y = image_problem(test_X)
-    for y in Y:
-        print(torch.reshape(y, (NUM_PIXELS, NUM_PIXELS)))
-    
-    print("computing areas")
-    area_util = AreaUtil()
-    print(area_util(Y))
+    print('Outcome data shape: ', Y.shape)
+
+    # for y in Y:
+    #     print(torch.reshape(y, (NUM_PIXELS, NUM_PIXELS)))
+
+    # TEST Util func: vanilla sum of area    
+    # print("computing areas")
+    # area_util = AreaUtil()
+    # print(area_util(Y))
+
+    # TEST Util func: largest rectangle
+    # print("computing largest rectangle for regular test cases")
+    # max_rectangle_util = LargestRectangleUtil(image_shape = (NUM_PIXELS, NUM_PIXELS))
+    # print(max_rectangle_util(Y))
+
+    # TEST Util func: gradient penalized area
+    print("Computing gradient penalized pixel sum")
+    grad_pen_util = GradientAwareAreaUtil(penalty_param = 0.1, image_shape = (NUM_PIXELS, NUM_PIXELS))
+    print(grad_pen_util(Y))
