@@ -10,11 +10,14 @@ import torch
 import yaml
 
 from low_rank_BOPE.bope_class import BopeExperiment
-from low_rank_BOPE.test_problems.shapes import AreaUtil, Image
+from low_rank_BOPE.test_problems.shapes import (AreaUtil,
+                                                GradientAwareAreaUtil, Image,
+                                                LargestRectangleUtil)
 
 
 def run_pipeline(
     trial_idx, n_pixels, 
+    util_func_name,
     methods = ["st", "pca", "pcr"],
     pe_strategies = ["EUBO-zeta", "Random-f"],
     **kwargs):
@@ -22,10 +25,20 @@ def run_pipeline(
     torch.manual_seed(trial_idx)
 
     problem = Image(num_pixels=n_pixels)
-    util_func = AreaUtil()
+    if util_func_name == "area":   
+        util_func = AreaUtil(binarize=binarize)
+    elif util_func_name == "gradient_aware_area":
+        penalty_param = kwargs.get('penalty_param', 0.5)
+        util_func = GradientAwareAreaUtil(
+            penalty_param=penalty_param, 
+            image_shape=(n_pixels, n_pixels)
+        )
+    elif util_func_name == "max_rectangle":
+        util_func = LargestRectangleUtil(image_shape=(n_pixels, n_pixels))
+
 
     output_path = "/home/yz685/low_rank_BOPE/experiments/shapes/" + \
-        f"{n_pixels}by{n_pixels}/"
+        f"{n_pixels}by{n_pixels}_{util_func_name}/"
 
     print("methods to plug into BopeExperiment: ", methods)
 
@@ -53,9 +66,12 @@ if __name__ == "__main__":
     run_pipeline(
         trial_idx = trial_idx,
         n_pixels=args["n_pixels"],
+        util_func_name = args["util_func_name"],
         n_check_post_mean = args["n_check_post_mean"], 
         methods=args["methods"], 
         pe_strategies=args["pe_strategies"],
         pca_var_threshold = args["pca_var_threshold"],
         initial_experimentation_batch = args["init_exp_batch"],
+        penalty_param = args["penalty_param"],
+        binarize_area = args.get("binarize", True)
     )

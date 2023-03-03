@@ -1,9 +1,9 @@
 from typing import List, Optional, Tuple
 
+import numpy as np
 import torch
 from botorch.test_functions.synthetic import SyntheticTestFunction
 from torch import Tensor
-import numpy as np
 
 # outcome function
 
@@ -55,16 +55,21 @@ class Image(SyntheticTestFunction):
 # utility functions
 
 class AreaUtil(torch.nn.Module):
-    def __init__(self, weights: Optional[Tensor] = None):
+    def __init__(self, binarize = True, weights: Optional[Tensor] = None):
         r"""
         Args:
             weights: `1 x outcome_dim` tensor 
         """
         super().__init__()
         self.weights = weights
+        self.binarize = binarize
     
     def forward(self, Y: Tensor):
-        area = torch.sum(Y, dim = 1)
+        if self.binarize:
+            area = torch.sum((Y > 0.5).float(), dim =1)
+        else:
+            area = torch.sum(Y, dim = 1)
+
         if self.weights is not None:
             area = area * self.weights
         return area
