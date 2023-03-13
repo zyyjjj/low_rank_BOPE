@@ -52,6 +52,49 @@ class Image(SyntheticTestFunction):
         return Y.to(torch.double)
 
 
+class Bars(SyntheticTestFunction):
+    r"""
+    Class for generating rectangles that extend across all columns
+    """
+    dim = 2
+    _bounds = torch.tensor([[0., 1.], [0., 1.]])
+
+    def __init__(self, num_pixels: int = 16):
+        super().__init__()
+        self.num_pixels = num_pixels
+        self.pixel_size = 1 / self.num_pixels
+        self.outcome_dim = num_pixels ** 2
+    
+    def evaluate_true(self, X):
+        r"""
+        Args:
+            X: 4-dimensional input
+        Returns:
+            Y: (num_pixels^2)-dimensional array representing the images
+        """
+
+        # map real values in X to integer indices of pixels
+        pixel_idcs = torch.div(X, self.pixel_size, rounding_mode="floor")
+
+        Y = torch.zeros((*X.shape[:-1], self.num_pixels**2))
+
+        for sample_idx in range(X.shape[-2]):
+
+            row_start, row_end = pixel_idcs[sample_idx].numpy().astype(int)
+
+            # swap if needed
+            if row_start > row_end:
+                row_start, row_end = row_end, row_start
+            
+            paint_it_black = [self.num_pixels * r + c \
+                    for r in range(min(row_start, self.num_pixels-1), min(row_end+1, self.num_pixels)) \
+                    for c in range(self.num_pixels)]
+            
+            Y[sample_idx, paint_it_black] = torch.ones(1, len(paint_it_black))
+
+        return Y.to(torch.double)
+
+
 # utility functions
 
 class AreaUtil(torch.nn.Module):
