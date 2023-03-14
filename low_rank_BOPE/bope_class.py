@@ -42,6 +42,7 @@ from low_rank_BOPE.src.transforms import (InputCenter,
                                           PCAInputTransform,
                                           PCAOutcomeTransform,
                                           SubsetOutcomeTransform,
+                                          compute_weights,
                                           generate_random_projection)
 
 
@@ -198,6 +199,29 @@ class BopeExperiment:
         if compute_util:
             self.util_vals = self.util_func(self.Y).detach()
             self.comps = gen_comps(self.util_vals)
+
+
+    def generate_random_pref_data(self, method, n):
+
+        X = (
+            draw_sobol_samples(
+                bounds=self.problem.bounds,
+                n=1,
+                q=2*n,
+                seed=self.trial_idx 
+            )
+            .squeeze(0)
+            .to(torch.double)
+            .detach()
+        )
+        Y = self.outcome_models_dict[method].posterior(
+            X).rsample().squeeze(0).detach()
+        util = self.util_func(Y)
+        comps = gen_comps(util)
+
+        for pe_strategy in self.pe_strategies:
+            self.pref_data_dict[method][pe_strategy] = (Y, comps)
+
 
     def fit_outcome_model(self, method):
         r"""Fit outcome model based on specified method.
@@ -480,15 +504,18 @@ class BopeExperiment:
             acqf_name="posterior_mean",
             seed=self.trial_idx
         )
+        post_mean_cand_Y = self.outcome_models_dict[method].posterior(post_mean_cand_X).mean
 
-        post_mean_util = self.util_func(
+        true_util = self.util_func(
             self.problem.evaluate_true(post_mean_cand_X)).item()
         print(
-            f"True utility of posterior mean utility maximizer: {post_mean_util:.3f}")
+            f"True utility of posterior mean utility maximizer: {true_util:.3f}")
 
         within_result = {
+            "X": post_mean_cand_X,
+            "Y": post_mean_cand_Y,
             "n_comps": train_comps.shape[0],
-            "util": post_mean_util,
+            "util": true_util,
             "run_id": self.trial_idx,
             "pe_strategy": pe_strategy,
             "method": method,
@@ -572,27 +599,6 @@ class BopeExperiment:
             "max_outcome_error": max_outcome_error}
         )
         
-
-    def generate_random_pref_data(self, method, n):
-
-        X = (
-            draw_sobol_samples(
-                bounds=self.problem.bounds,
-                n=1,
-                q=2*n,
-                seed=self.trial_idx 
-            )
-            .squeeze(0)
-            .to(torch.double)
-            .detach()
-        )
-        Y = self.outcome_models_dict[method].posterior(
-            X).rsample().squeeze(0).detach()
-        util = self.util_func(Y)
-        comps = gen_comps(util)
-
-        for pe_strategy in self.pe_strategies:
-            self.pref_data_dict[method][pe_strategy] = (Y, comps)
 
 
 # ======== Putting it together into steps ========
