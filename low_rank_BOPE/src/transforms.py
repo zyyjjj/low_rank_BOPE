@@ -668,7 +668,7 @@ def compute_weights(util_vals: Tensor, weights_type: str, **kwargs):
         kwargs: settings for specific weight types
 
     Returns:
-        weights: np array of weights for each data point
+        weights: `num_samples x 1` tensor of weights for each data point
     """
 
     weights_type = "rank" if weights_type is None else weights_type
@@ -686,4 +686,46 @@ def compute_weights(util_vals: Tensor, weights_type: str, **kwargs):
     #     weights = np.power(np.asarray(util_vals), power) / np.sum(np.power(np.asarray(util_vals), power))
         # TODO: how to deal with negative util_val?
 
-    return weights
+    return torch.tensor(weights).unsqueeze(1)
+
+
+
+def fit_pca(train_Y: Tensor, var_threshold: float=0.9, weights: Optional[Tensor] = None):
+
+    r"""
+    Perform PCA on supplied data with optional weights.
+
+    Args:
+        train_Y: `num_samples x outcome_dim` tensor of data
+        var_threshold: threshold of variance explained
+        weights: `num_samples x 1` tensor of weights to add on each data point
+    Returns:
+        pca_axes: `latent_dim x outcome_dim` tensor where each row is a pca axis
+    """
+
+    # unweighted pca
+    if weights is None:
+        U, S, V = torch.svd(train_Y - train_Y.mean(dim=0))
+
+    # weighted pca
+    else:
+        assert weights.shape[0] == train_Y.shape[0], \
+            f"weights shape {weights.shape} does not match train_Y shape {train_Y.shape}, "
+        assert (weights >= 0).all(), \
+            "weights must be nonnegative"
+            
+        weighted_mean = (train_Y * weights).sum(dim=0) / weights.sum(0)
+        train_Y_centered = train_Y - weighted_mean
+        U, S, V = torch.svd(weights * train_Y_centered)
+
+    S_squared = torch.square(S)
+    explained_variance = S_squared / S_squared.sum()
+
+    exceed_thres = (
+        np.cumsum(explained_variance) > var_threshold
+    )
+    num_axes = len(exceed_thres) - sum(exceed_thres) + 1
+
+    pca_axes = torch.tensor(torch.transpose(V[:, : num_axes], -2, -1), dtype = torch.double)
+
+    return pca_axes
