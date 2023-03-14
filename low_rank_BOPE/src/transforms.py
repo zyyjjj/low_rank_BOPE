@@ -4,13 +4,13 @@ from typing import List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn
-
 from botorch.exceptions.errors import BotorchTensorDimensionError
-
-from botorch.models.transforms.input import InputTransform, ReversibleInputTransform
+from botorch.models.transforms.input import (InputTransform,
+                                             ReversibleInputTransform)
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.posteriors import Posterior, TransformedPosterior
 from torch import Tensor
+
 
 # code credit to Sait
 class ModifiedTransformedPosterior(TransformedPosterior):
@@ -185,7 +185,6 @@ class PCAInputTransform(InputTransform, torch.nn.Module):
         untransformed_X = torch.matmul(X_tf, self.axes)
 
         return untransformed_X
-
 
 class LinearProjectionOutcomeTransform(OutcomeTransform):
     def __init__(
@@ -619,3 +618,72 @@ class InputCenter(ReversibleInputTransform, torch.nn.Module):
             else:
                 return super().equals(other=other) and (self._d == other._d)
         return False
+
+
+def get_latent_ineq_constraints(projection: Tensor, original_bounds: Tensor):
+    """
+    Get inequality constraints on latent variables
+
+    Args:
+        projection: `latent_dim x outcome_dim` tensor of projection matrix
+        original_bounds: `2 x outcome_dim` tensor of bounds in the outcome space
+    Returns:
+        A list of tuples (indices, coefficients, rhs),
+            with each tuple encoding an inequality constraint of the form
+            `\sum_i (latent_var[indices[i]] * coefficients[i]) >= rhs`
+        (This is to be directly plugged into inequality_constraints in optimize_acqf) 
+    """
+
+    # we want: 
+    # projection[0][i]*pc[0] + ... + projection[p][i]*pc[p] >= original_bounds[0][i]
+    # - projection[0][i]*pc[0] - ... - projection[p][i]*pc[p] >= - original_bounds[1][i]
+
+    indices = torch.tensor(range(projection.shape[0]))
+    latent_cons = []
+
+    for i in range(original_bounds.shape[-1]):
+        lb = original_bounds[0][i].item()
+        coefficients_lb = projection[:,i]
+        latent_cons.append((indices, coefficients_lb, lb))
+
+        ub = -original_bounds[1][i].item()
+        coefficients_ub = -projection[:,i]
+        latent_cons.append((indices, coefficients_ub, ub))
+    
+    return latent_cons
+    
+
+def compute_weights(util_vals: Tensor, weights_type: str, **kwargs):
+
+    r""" 
+    Compute weights for each datapoint, later used in weighted PCA.
+    This function is in progress.
+
+    Args:
+        util_vals: shape `(num_samples,)` tensor of sample utility values;
+            (can be true utility values, or predicted posterior mean from a surrogate model)
+        weights_type: specifies the type of weights
+            "rank": rank weighting in Tripp et al. 2020
+            "power": 
+        kwargs: settings for specific weight types
+
+    Returns:
+        weights: np array of weights for each data point
+    """
+
+    weights_type = "rank" if weights_type is None else weights_type
+
+    if weights_type == "rank":
+        # follows Tripp et al. paper
+        k = kwargs.get("k", 10) # TODO: come back to setting k more carefully
+        utils_argsort = np.argsort(-np.asarray(util_vals))
+        ranks = np.argsort(utils_argsort)
+        weights = 1 / (k * len(util_vals) + ranks) # TODO: should we normalize?
+
+    # elif weights_type == "power":
+    #     power = kwargs.get("power", 0)
+
+    #     weights = np.power(np.asarray(util_vals), power) / np.sum(np.power(np.asarray(util_vals), power))
+        # TODO: how to deal with negative util_val?
+
+    return weights
