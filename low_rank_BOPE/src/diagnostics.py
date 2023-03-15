@@ -6,6 +6,7 @@ from botorch.models.model import Model
 from low_rank_BOPE.src.pref_learning_helpers import (gen_initial_real_data,
                                                      generate_random_inputs)
 from torch import Tensor
+from typing import Optional
 
 sys.path.append('..')
 
@@ -272,7 +273,8 @@ def check_util_model_fit(
     util_func: torch.nn.Module, 
     n_test: int, 
     batch_eval: bool,
-    return_util_vals: bool = False
+    return_util_vals: bool = False,
+    projection: Optional[Tensor] = None
 ) -> float:
     r"""
     Evaluate the goodness of fit of the utility model.
@@ -282,6 +284,8 @@ def check_util_model_fit(
         util_func: ground truth utility function (outcome -> utility)
         n_test: number of outcomes in test set; this gives rise to
             `n_test/2` pairwise comparisons
+        projection: optional `latent_dim x outcome_dim` tensor of projection to 
+            latent space; if not None, the pref model is fit on the latent space
     Returns:
         pref_prediction_accuracy: fraction of the `n_test/2` pairwise
             preference that the model correctly predicts
@@ -297,7 +301,11 @@ def check_util_model_fit(
     )
 
     # run pref_model on test data, get predictions
-    posterior_util_mean = pref_model.posterior(test_Y).mean
+    if projection is not None:
+        test_L = torch.matmul(test_Y, torch.transpose(projection, -2, -1))
+        posterior_util_mean = pref_model.posterior(test_L).mean
+    else:
+        posterior_util_mean = pref_model.posterior(test_Y).mean
     posterior_util_mean_ = posterior_util_mean.reshape((n_test // 2, 2))
 
     # compute pref prediction accuracy
@@ -311,6 +319,7 @@ def check_util_model_fit(
     pref_prediction_accuracy = sum(correct_test_rankings < 0) / len(
         correct_test_rankings
     )
+    print('util model accuracy', pref_prediction_accuracy.item())
 
     if return_util_vals:
         return test_util_vals, posterior_util_mean, pref_prediction_accuracy.item()

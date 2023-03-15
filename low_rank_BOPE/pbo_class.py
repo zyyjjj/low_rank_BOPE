@@ -334,7 +334,12 @@ class PboExperiment:
     def find_max_posterior_mean(self, method):
         # compute posterior-util-maximizing candidate images
 
-        latent = True if method in self.projections_dict else False
+        if method in self.projections_dict:
+            latent = True
+            projection = self.projections_dict[method]
+        else:
+            latent = False
+            projection = None
 
         sampler = SobolQMCNormalSampler(64)
         postmean_acqf = qSimpleRegret(
@@ -354,7 +359,7 @@ class PboExperiment:
         )
 
         if latent:
-            cand_Y = torch.matmul(cand.to(torch.double), self.projections_dict[method])
+            cand_Y = torch.matmul(cand.to(torch.double), projection)
         else:
             cand_Y = cand.to(torch.double).detach().clone()
         cand_util_val = self.util_func(cand_Y).item()
@@ -367,11 +372,11 @@ class PboExperiment:
             "candidate": cand_Y
         }
 
-        # TODO: add util model fit check 
-        # util_model_acc = check_util_model_fit(
-        #     self.util_models_dict[method], self.problem, self.util_func, 
-        #     n_test=1000, batch_eval=True)
-        # within_result["util_model_acc"] = util_model_acc
+        # check util model fit
+        util_model_acc = check_util_model_fit(
+            self.util_models_dict[method], self.problem, self.util_func, 
+            n_test=1000, batch_eval=True, projection=projection)
+        within_result["util_model_acc"] = util_model_acc
 
         return within_result
 
