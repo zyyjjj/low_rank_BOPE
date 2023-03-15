@@ -55,7 +55,6 @@ class BopeExperiment:
         "every_n_comps": 3,
         "verbose": True,
         "dtype": torch.double,
-        "noise_std": 0.01,  # TODO: figure out how to set this for different probs
         "num_restarts": 20,
         "raw_samples": 128,
         "batch_limit": 4,

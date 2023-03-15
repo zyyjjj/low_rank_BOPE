@@ -653,7 +653,7 @@ def get_latent_ineq_constraints(projection: Tensor, original_bounds: Tensor):
     return latent_cons
     
 
-def compute_weights(util_vals: Tensor, weights_type: str, **kwargs):
+def compute_weights(util_vals: Tensor, weights_type: str = "rank", **kwargs):
 
     r""" 
     Compute weights for each datapoint, later used in weighted PCA.
@@ -670,8 +670,6 @@ def compute_weights(util_vals: Tensor, weights_type: str, **kwargs):
     Returns:
         weights: `num_samples x 1` tensor of weights for each data point
     """
-
-    weights_type = "rank" if weights_type is None else weights_type
 
     if weights_type == "rank":
         # follows Tripp et al. paper

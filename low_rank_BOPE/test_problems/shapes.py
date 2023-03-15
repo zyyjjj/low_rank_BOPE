@@ -19,6 +19,13 @@ class Image(SyntheticTestFunction):
         self.num_pixels = num_pixels
         self.pixel_size = 1 / self.num_pixels
         self.outcome_dim = num_pixels ** 2
+        self.outcome_bounds = torch.cat(
+            (
+                torch.zeros(num_pixels ** 2).unsqueeze(0), 
+                torch.ones(num_pixels ** 2).unsqueeze(0)
+            ), 
+            dim=0
+        )
     
     def evaluate_true(self, X):
         r"""
@@ -64,6 +71,13 @@ class Bars(SyntheticTestFunction):
         self.num_pixels = num_pixels
         self.pixel_size = 1 / self.num_pixels
         self.outcome_dim = num_pixels ** 2
+        self.outcome_bounds = torch.cat(
+            (
+                torch.zeros(num_pixels ** 2).unsqueeze(0), 
+                torch.ones(num_pixels ** 2).unsqueeze(0)
+            ), 
+            dim=0
+        )
     
     def evaluate_true(self, X):
         r"""

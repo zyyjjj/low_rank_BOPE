@@ -23,10 +23,7 @@ from botorch.utils.sampling import draw_sobol_samples
 from sklearn.linear_model import LinearRegression
 from torch import Tensor
 
-from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
-                                           check_util_model_fit,
-                                           mc_max_outcome_error,
-                                           mc_max_util_error)
+from low_rank_BOPE.src.diagnostics import check_util_model_fit
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
 from low_rank_BOPE.src.pref_learning_helpers import (  # find_max_posterior_mean, # TODO: later see if we want the error-handled version;;; fit_pref_model, # TODO: later see if we want the error-handled version
     ModifiedFixedSingleSampleModel, find_true_optimal_utility,
@@ -68,7 +65,6 @@ class PboExperiment:
         problem: torch.nn.Module,
         util_func: torch.nn.Module,
         methods: List[str],
-        pe_strategies: List[str],
         trial_idx: int,
         output_path: str,
         **kwargs
@@ -85,11 +81,10 @@ class PboExperiment:
         # pre-specified experiment metadata
         self.problem = problem.double()
         self.util_func = util_func
-        self.pe_strategies = pe_strategies
         self.outcome_dim = problem.outcome_dim
         self.input_dim = problem._bounds.shape[-1]
         # allow problem to have optional bounds on outcome vectors
-        self.outcome_bounds = problem.outcome_bounds if hasattr(problem, "outcome_bounds") else None
+        self.outcome_bounds = problem.outcome_bounds.to(torch.double) if hasattr(problem, "outcome_bounds") else None
         self.trial_idx = trial_idx
         self.output_path = output_path
         if not os.path.exists(self.output_path):
@@ -97,10 +92,10 @@ class PboExperiment:
         if hasattr(self.problem, "true_axes"):
             self.true_axes = self.problem.true_axes
 
-        if "unweighted_pca" in methods:
+        if "uw_pca" in methods:
             # run unweighted pca first, so that the learned latent_dim
             # informs the other methods with dim reduction
-            self.methods = ["unweighted_pca"] + [m for m in methods if m != "unweighted_pca"]
+            self.methods = ["uw_pca"] + [m for m in methods if m != "uw_pca"]
             print('self.methods, ', self.methods)
         else:
             # if "unweighted_pca" is not run and latent_dim is not specified
@@ -138,18 +133,17 @@ class PboExperiment:
             .to(torch.double)
             .detach()
         )
-        Y = self.problem(self.X).detach()
+        Y = self.problem(X).detach()
 
         util_vals = self.util_func(Y).detach()
-        comps = gen_comps(self.util_vals)
+        comps = gen_comps(util_vals)
 
         for method in self.methods:
-            for pe_strategy in self.pe_strategies:
-                self.pref_data_dict[(method, pe_strategy)] = {
-                    "Y": Y,
-                    "util_vals": util_vals,
-                    "comps": comps
-                }
+            self.pref_data_dict[method] = {
+                "Y": Y,
+                "util_vals": util_vals,
+                "comps": comps
+            }
 
     def compute_projection_and_acqf_bounds(self, method):
 
@@ -164,6 +158,7 @@ class PboExperiment:
                 weights=weights
             ) 
 
+        # TODO: currently not running well
         elif method == "w_pca_est":
             if "w_pca_est" in self.util_models_dict:
                 # use posterior mean as utility value estimate, if a model exists
@@ -171,7 +166,7 @@ class PboExperiment:
                 weights = compute_weights(util_vals_est.squeeze(1))
             else:
                 # otherwise, use uniform weights
-                weights = torch.ones(Y.shape[0])
+                weights = torch.ones((Y.shape[0],1))
             projection = fit_pca(
                 Y, 
                 var_threshold=self.pca_var_threshold, 
@@ -179,15 +174,11 @@ class PboExperiment:
             ) 
         
         elif method == "uw_pca":
-            pca_axes = fit_pca(
+            projection = fit_pca(
                 Y, 
                 var_threshold=self.pca_var_threshold, 
                 weights=None
             ) 
-            projection = torch.matmul(
-                self.pref_data_dict["uw_pca"]["Y"], 
-                torch.transpose(pca_axes, -2, -1)
-            )
         
         elif method == "st":
             projection = None
@@ -195,7 +186,7 @@ class PboExperiment:
         elif method in ("random_linear_proj"):
             pass
 
-        if projection:
+        if projection is not None:
             # compute and save latent variables, save projection
             L = torch.matmul(
                 Y, 
@@ -206,7 +197,7 @@ class PboExperiment:
 
             # compute and save acquisition function bounds and ineq constraints
             self.acqf_bounds_dict[method]["bounds"] = \
-                torch.tensor([[-np.inf]*projection.shape[0], [np.inf]*projection.shape[0]])
+                torch.tensor([[-10000]*projection.shape[0], [10000]*projection.shape[0]], dtype=torch.double)
             
             if self.outcome_bounds is not None:
                 latent_ineq_constraints = get_latent_ineq_constraints(
@@ -225,7 +216,7 @@ class PboExperiment:
                 self.acqf_bounds_dict[method]["bounds"] = self.outcome_bounds
             else:
                 self.acqf_bounds_dict[method]["bounds"] = \
-                    torch.tensor([[-np.inf]*self.outcome_dim, [np.inf]*projection.self.outcome_dim])
+                    torch.tensor([[-10000]*self.outcome_dim, [10000]*projection.self.outcome_dim], dtype=torch.double)
         
 
     def fit_util_model(self, method, **model_kwargs):
@@ -255,6 +246,7 @@ class PboExperiment:
     def run_pref_learning(self, method):
 
         latent = True if method in self.projections_dict else False
+        print(method, latent)
 
         acqf_vals = []
         for i in range(self.every_n_comps):
@@ -268,7 +260,7 @@ class PboExperiment:
             for _ in range(3):
                 try:
                     self.compute_projection_and_acqf_bounds(method)
-                    util_model = self.fit_util_model(method)
+                    self.fit_util_model(method)
                     print("Pref model fitting successful")
                     fit_model_succeed = True
                     break
@@ -287,7 +279,7 @@ class PboExperiment:
                 # use statistical method + EUBO-zeta strategy
 
                 acqf = AnalyticExpectedUtilityOfBestOption(
-                    pref_model=util_model,
+                    pref_model=self.util_models_dict[method],
                 ).to(torch.double) 
 
                 found_valid_candidate = False
@@ -375,6 +367,12 @@ class PboExperiment:
             "candidate": cand_Y
         }
 
+        # TODO: add util model fit check 
+        # util_model_acc = check_util_model_fit(
+        #     self.util_models_dict[method], self.problem, self.util_func, 
+        #     n_test=1000, batch_eval=True)
+        # within_result["util_model_acc"] = util_model_acc
+
         return within_result
 
 
@@ -384,9 +382,12 @@ class PboExperiment:
 
         self.PE_session_results[method] = []
 
+        self.compute_projection_and_acqf_bounds(method)
+        self.fit_util_model(method)
         self.PE_session_results[method].append(
             self.find_max_posterior_mean(method)
         )
+
         for j in range(self.n_check_post_mean):
             self.run_pref_learning(method)
             self.PE_session_results[method].append(
@@ -394,20 +395,20 @@ class PboExperiment:
             )            
 
     def run_PBO_loop(self):
-        self.generate_random_pref_data()
+        self.generate_initial_data(n=self.initial_pref_batch_size)
         for method in self.methods:
             try:
                 # run
-                self.generate_initial_data(n=self.initial_pref_batch_size)
+                # self.generate_initial_data()
                 self.run_PE_stage(method)
 
                 # save, something like
                 torch.save(self.PE_session_results, self.output_path +
                         'PE_session_results_trial=' + str(self.trial_idx) + '.th')
-                torch.save(self.final_candidate_results, self.output_path +
-                        'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
-                torch.save(self.outcome_model_fitting_results, self.output_path +
-                        'outcome_model_fitting_results_trial=' + str(self.trial_idx) + '.th')
+                # torch.save(self.final_candidate_results, self.output_path +
+                #         'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
+                # torch.save(self.outcome_model_fitting_results, self.output_path +
+                #         'outcome_model_fitting_results_trial=' + str(self.trial_idx) + '.th')
                 
             except:
                 print(f"============= {method} failed, skipping =============")
