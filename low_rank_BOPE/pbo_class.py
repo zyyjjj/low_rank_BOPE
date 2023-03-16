@@ -246,7 +246,6 @@ class PboExperiment:
     def run_pref_learning(self, method):
 
         latent = True if method in self.projections_dict else False
-        print(method, latent)
 
         acqf_vals = []
         for i in range(self.every_n_comps):
