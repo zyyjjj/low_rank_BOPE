@@ -6,7 +6,7 @@ from botorch.models.model import Model
 from low_rank_BOPE.src.pref_learning_helpers import (gen_initial_real_data,
                                                      generate_random_inputs)
 from torch import Tensor
-from typing import Optional
+from typing import Optional, List, Tuple
 
 sys.path.append('..')
 
@@ -347,3 +347,28 @@ def check_util_model_fit_wrapper(problem, util_func, models_dict, seed = 0, n_te
         acc_dict[model_key] = acc
     
     return acc_dict
+
+
+def get_function_statistics(
+    function: torch.nn.Module or Model, 
+    bounds: Tensor, 
+    inequality_constraints: List[Tuple], 
+    n_samples: int
+):
+    r"""
+    Obtain the empirical min, max, and other statistics through taking samples
+    in the input domain of a function / model.
+
+    Args:
+        function: could be acquisition function or GP model. If GP model, must be
+            scalar-output, and by default we look at the posterior mean
+        bounds: bounds on the input space
+        inequality_constraints: inequality constraints on the input space
+        n_samples: number of samples to take; if None, make it O(input_dim) or something?
+    Returns:
+        A few statistics of the function output value
+    """
+
+    # TODO: do we need to impose the constraints manually? scipy?
+    # rejection sampling? 
+    # could this be useful? botorch.utils.constraints.get_outcome_constraint_transforms 

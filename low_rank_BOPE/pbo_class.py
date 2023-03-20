@@ -284,6 +284,8 @@ class PboExperiment:
                 found_valid_candidate = False
                 for _ in range(3):
                     try:
+                        # TODO: save acqf_val and compare with that of other randomly points
+                        # does this warrant its own helper function?
                         cand, acqf_val = optimize_acqf(
                             acq_function=acqf,
                             q=2,
@@ -403,17 +405,15 @@ class PboExperiment:
         for method in self.methods:
             try:
                 # run
-                # self.generate_initial_data()
                 self.run_PE_stage(method)
 
-                # save, something like
+                # save initial + EUBO-sampled training outcomes and comps
+                torch.save(self.pref_data_dict, self.output_path +
+                        'pref_data_trial=' + str(self.trial_idx) + '.th')
+                # save max posterior mean utility over PE samples
                 torch.save(self.PE_session_results, self.output_path +
                         'PE_session_results_trial=' + str(self.trial_idx) + '.th')
-                # torch.save(self.final_candidate_results, self.output_path +
-                #         'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
-                # torch.save(self.outcome_model_fitting_results, self.output_path +
-                #         'outcome_model_fitting_results_trial=' + str(self.trial_idx) + '.th')
-                
+
             except:
                 print(f"============= {method} failed, skipping =============")
                 continue
