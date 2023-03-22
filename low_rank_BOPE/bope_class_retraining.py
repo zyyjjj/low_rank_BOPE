@@ -37,17 +37,12 @@ from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
 from low_rank_BOPE.src.pref_learning_helpers import (
     ModifiedFixedSingleSampleModel, find_true_optimal_utility, gen_comps,
     gen_exp_cand)
-from low_rank_BOPE.src.transforms import (InputCenter,
-                                          LinearProjectionInputTransform,
+from low_rank_BOPE.src.transforms import (LinearProjectionInputTransform,
                                           LinearProjectionOutcomeTransform,
-                                          PCAInputTransform,
-                                          PCAOutcomeTransform,
                                           SubsetOutcomeTransform,
                                           compute_weights, fit_pca,
                                           generate_random_projection)
 
-# TODO: after addressing the current changes, double check anything new changes
-# I should port over from PBO class
 
 class RetrainingBopeExperiment:
 
@@ -125,27 +120,28 @@ class RetrainingBopeExperiment:
         # the subspace is updated during PE only if the method ends with "rt"
 
         # logging model specifics
-        self.outcome_models_dict = {}  # by method
+        self.outcome_models_dict = {}  # by (method, pe_strategy)
         self.pref_models_dict = {} # by (method, pe_strategy)
         self.pref_data_dict = defaultdict(dict)  # (Y, util_vals, comps) by (method, pe_strategy)
         self.projections_dict = {} # stores projections to subspaces, by (method, pe_strategy)
         self.transforms_covar_dict = {} # specify outcome and input transforms, covariance modules, by (method, pe_strategy)
-        # TODO: do I need a self.util_models_dict?
 
         # log results
         self.PE_time_dict = {}
-        self.PE_session_results = defaultdict(dict) # deps on method and pe strategy
-        self.final_candidate_results = defaultdict(dict) # deps on method and pe strategy
-        self.subspace_diagnostics = defaultdict(dict) # deps on method and pe strategy
+        self.PE_session_results = defaultdict(dict) # [method][pe_strategy]
+        self.final_candidate_results = defaultdict(dict) # [method][pe_strategy]
+        self.subspace_diagnostics = defaultdict(lambda: defaultdict(list)) # [(method, pe_strategy)]
        
         # estimate true optimal utility through sampling
         self.true_opt = find_true_optimal_utility(self.problem, self.util_func, n=5000)
 
-    def generate_random_experiment_data(self, n, compute_util: False):
+    def generate_random_experiment_data(self, n, compute_util = True):
         r"""Generate n observations of experimental designs and outcomes.
         This is shared by all methods. 
         Args:
             n: number of samples
+            compute_util: if True, also observe comparisons between observed 
+                outcome as well as save their true utility values
         Computes:
             X: `n x problem input dim` tensor of sampled inputs
             Y: `n x problem outcome dim` tensor of noisy evaluated outcomes at X
@@ -284,20 +280,19 @@ class RetrainingBopeExperiment:
                 "covar_module": make_modified_kernel(ard_num_dims=projection.shape[0]),
             }
 
-            # TODO: save subspace diagnostics, come back to this
-            # something like below, though this is assuming defaultdict(list)
+            # save subspace diagnostics
             self.subspace_diagnostics[(method, pe_strategy)]["latent_dim"].append(projection.shape[0])
 
-
             
-    def fit_outcome_model(self, method): 
+    def fit_outcome_model(self, method, pe_strategy): 
         r"""Fit outcome model based on specified method.
         Args:
             method: string specifying the statistical model
+            pe_strategy
+        
         """
 
-        dummy_pe_strategy = "EUBO-zeta"
-        print(f"Fitting outcome model using {method}")
+        print(f"Fitting outcome model using {method} and {pe_strategy}")
 
         start_time = time.time()
 
@@ -305,7 +300,7 @@ class RetrainingBopeExperiment:
             train_X=self.X, 
             train_Y=self.Y, 
             outcome_transform = copy.deepcopy(
-                self.transforms_covar_dict[(method, dummy_pe_strategy)]["outcome_tf"]
+                self.transforms_covar_dict[(method, pe_strategy)]["outcome_tf"]
             )
         )
 
@@ -315,15 +310,11 @@ class RetrainingBopeExperiment:
         # should we observe comparisons in first stage? suppose we do, then we can initialize the util model w more data
         
         model_fitting_time = time.time() - start_time
-        rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000)
-        self.subspace_diagnostics[method] = {
-            "model_fitting_time": model_fitting_time,
-            "rel_mse": rel_mse
-        }
+        rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000) # TODO: double check MSE metric we are using
+        self.subspace_diagnostics[(method, pe_strategy)]["model_fitting_time"].append(model_fitting_time)
+        self.subspace_diagnostics[(method, pe_strategy)]["rel_mse"].append(rel_mse)
 
-        self.outcome_models_dict[method] = outcome_model
-
-
+        self.outcome_models_dict[(method, pe_strategy)] = outcome_model
 
 
     def fit_pref_model(
@@ -389,7 +380,7 @@ class RetrainingBopeExperiment:
                 with botorch.settings.debug(state=True):
                     # EUBO-zeta
                     one_sample_outcome_model = ModifiedFixedSingleSampleModel(
-                        model=self.outcome_models_dict[method],
+                        model=self.outcome_models_dict[(method, pe_strategy)],
                         outcome_dim=train_Y.shape[-1]
                     ).to(torch.double) 
                     acqf = AnalyticExpectedUtilityOfBestOption(
@@ -430,7 +421,7 @@ class RetrainingBopeExperiment:
                     n=1,
                     q=2,
                 ).squeeze(0).to(torch.double)
-                cand_Y = self.outcome_models_dict[method].posterior(
+                cand_Y = self.outcome_models_dict[(method, pe_strategy)].posterior(
                     cand_X).rsample().squeeze(0).detach()
             else:
                 raise RuntimeError("Unknown preference exploration strategy!")
@@ -472,7 +463,7 @@ class RetrainingBopeExperiment:
 
         # find experimental candidate(s) that maximize the posterior mean utility
         post_mean_cand_X = gen_exp_cand(
-            outcome_model=self.outcome_models_dict[method],
+            outcome_model=self.outcome_models_dict[(method, pe_strategy)],
             objective=pref_obj,
             problem=self.problem,
             q=1,
@@ -517,7 +508,7 @@ class RetrainingBopeExperiment:
 
         # find experimental candidate(s) that maximize the posterior mean utility
         cand_X = gen_exp_cand(
-            outcome_model=self.outcome_models_dict[method],
+            outcome_model=self.outcome_models_dict[(method, pe_strategy)],
             objective=pref_obj,
             problem=self.problem,
             q=1,
@@ -548,7 +539,6 @@ class RetrainingBopeExperiment:
 
     def compute_subspace_diagnostics(self, method, pe_strategy, n_test = 1000):
         # log diagnostics for recovering outcome and utility from the subspace
-        # method could be one of {"uwpca", "wpca_true", "wpca_est", "random_linear_proj", "spca_true", "spca_est"} and their retraining version "*_rt"
 
         projection = self.projections_dict[(method, pe_strategy)] 
 
@@ -565,13 +555,11 @@ class RetrainingBopeExperiment:
             n_test=n_test
         )
         
-        self.subspace_diagnostics[method].update(
-            {"max_util_error": max_util_error,
-            "max_outcome_error": max_outcome_error}
-        )
+        self.subspace_diagnostics[(method, pe_strategy)]["max_util_error"].append(max_util_error)
+        self.subspace_diagnostics[(method, pe_strategy)]["max_outcome_error"].append(max_outcome_error)
         
 
-    def generate_random_pref_data(self, method, n):
+    def generate_random_pref_data(self, method, pe_strategy,n):
 
         X = (
             draw_sobol_samples(
@@ -584,25 +572,23 @@ class RetrainingBopeExperiment:
             .to(torch.double)
             .detach()
         )
-        Y = self.outcome_models_dict[method].posterior(
+        Y = self.outcome_models_dict[(method, pe_strategy)].posterior(
             X).rsample().squeeze(0).detach()
         util_val = self.util_func(Y)
-        comps = gen_comps(util)
+        comps = gen_comps(util_val)
 
         # TODO: check the below procedure of appending to existing data is correct
 
-        for pe_strategy in self.pe_strategies:
-
-            self.pref_data_dict[(method, pe_strategy)]["comps"] = torch.cat(
-                (self.pref_data_dict[(method, pe_strategy)]["comps"],
-                comps + self.pref_data_dict[(method, pe_strategy)]["Y"].shape[0])
-            )
-            self.pref_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
-                (self.pref_data_dict[(method, pe_strategy)]["Y"], Y)
-            )
-            self.pref_data_dict[(method, pe_strategy)]["util_vals"] = torch.cat(
-                (self.pref_data_dict[(method, pe_strategy)]["util_vals"], util_val)
-            )
+        self.pref_data_dict[(method, pe_strategy)]["comps"] = torch.cat(
+            (self.pref_data_dict[(method, pe_strategy)]["comps"],
+            comps + self.pref_data_dict[(method, pe_strategy)]["Y"].shape[0])
+        )
+        self.pref_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
+            (self.pref_data_dict[(method, pe_strategy)]["Y"], Y)
+        )
+        self.pref_data_dict[(method, pe_strategy)]["util_vals"] = torch.cat(
+            (self.pref_data_dict[(method, pe_strategy)]["util_vals"], util_val)
+        )
 
 
 
@@ -611,27 +597,33 @@ class RetrainingBopeExperiment:
 
     def run_first_experimentation_stage(self, method):
 
-        self.compute_projection_and_fit_outcome_model(method)
+        for pe_strategy in self.pe_strategies:
+            self.compute_projections(method, pe_strategy)
+            self.fit_outcome_model(method, pe_strategy)
+        # TODO: import question: if we update the subspace, do we re-learn the outcome model on those subspaces? Yes
         
-        if any(method.startswith(header) for header in self.subspace_methods_headers):
-            self.compute_subspace_diagnostics(method, n_test=1000)
 
     def run_PE_stage(self, method):
         # initial result stored in self.pref_data_dict
-        # TODO: if we also gather comps in the first stage, is this step needed?
-        self.generate_random_pref_data(method, n=1)
+        
 
         for pe_strategy in self.pe_strategies:
+
+            self.generate_random_pref_data(method, pe_strategy, n=1)
+            # TODO: if we also gather comps in the first stage, is this step needed?
+
+            if any(method.startswith(header) for header in self.subspace_methods_headers):
+                self.compute_subspace_diagnostics(method, pe_strategy, n_test=1000)
 
             start_time = time.time()
 
             print(f"===== Running PE using {method} with {pe_strategy} =====")
 
             self.PE_session_results[method][pe_strategy] = []
-
             self.PE_session_results[method][pe_strategy].append(
                 self.find_max_posterior_mean(method, pe_strategy)
             )
+
             for j in range(self.n_check_post_mean):
 
                 self.run_pref_learning(method, pe_strategy)
@@ -642,6 +634,9 @@ class RetrainingBopeExperiment:
                 # TODO: check correctness
                 if method.endswith("rt"):
                     self.compute_projections(method, pe_strategy)
+                    self.fit_outcome_model(method, pe_strategy)
+                    # run diagnostics on the updated subspaces
+                    self.compute_subspace_diagnostics(method, pe_strategy, n_test=1000)
             
             # log time required to do PE
             PE_time = time.time() - start_time
@@ -674,13 +669,15 @@ class RetrainingBopeExperiment:
                 self.run_PE_stage(method)
                 self.run_second_experimentation_stage(method)
 
-                # TODO: also save self.pref_data_dict
                 torch.save(self.PE_session_results, self.output_path +
                         'PE_session_results_trial=' + str(self.trial_idx) + '.th')
                 torch.save(self.final_candidate_results, self.output_path +
                         'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
+                torch.save(self.pref_data_dict, self.output_path +
+                        'pref_data_trial=' + str(self.trial_idx) + '.th')
                 torch.save(self.subspace_diagnostics, self.output_path +
                         'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
+            
             except:
                 print(f"============= {method} failed, skipping =============")
                 continue
