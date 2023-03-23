@@ -7,6 +7,8 @@ from low_rank_BOPE.src.pref_learning_helpers import (gen_initial_real_data,
                                                      generate_random_inputs)
 from torch import Tensor
 from typing import Optional, List, Tuple
+from botorch.utils.sampling import draw_sobol_samples
+from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 
 sys.path.append('..')
 
@@ -352,8 +354,10 @@ def check_util_model_fit_wrapper(problem, util_func, models_dict, seed = 0, n_te
 def get_function_statistics(
     function: torch.nn.Module or Model, 
     bounds: Tensor, 
-    inequality_constraints: List[Tuple], 
-    n_samples: int
+    inequality_constraints: List[Tuple] = None, 
+    n_samples: int = 1024,
+    quantiles: Tensor = torch.tensor([0.25, 0.5, 0.75], dtype=torch.double),
+    interpolation: str = "nearest"
 ):
     r"""
     Obtain the empirical min, max, and other statistics through taking samples
@@ -363,12 +367,65 @@ def get_function_statistics(
         function: could be acquisition function or GP model. If GP model, must be
             scalar-output, and by default we look at the posterior mean
         bounds: bounds on the input space
-        inequality_constraints: inequality constraints on the input space
-        n_samples: number of samples to take; if None, make it O(input_dim) or something?
+        inequality_constraints: inequality constraints on the input space, 
+            same format as passed into optimize_acqf():
+            A list of tuples (indices, coefficients, rhs),
+            with each tuple encoding an inequality constraint of the form
+            `\sum_i (latent_var[indices[i]] * coefficients[i]) >= rhs`
+        n_samples: number of samples to take
+        interpolation: interpolation method in torch.quantile()
     Returns:
         A few statistics of the function output value
     """
 
-    # TODO: do we need to impose the constraints manually? scipy?
-    # rejection sampling? 
-    # could this be useful? botorch.utils.constraints.get_outcome_constraint_transforms 
+    # TODO: think: would rejection sampling be inefficient if 
+    # the feasible region is small relative to the bounds? (not urgent)
+
+    if inequality_constraints is None:
+        samples = draw_sobol_samples(bounds=bounds, n=n_samples, q=1).squeeze(1).to(torch.double)
+    else:
+        samples = []
+        for _ in range(n_samples):
+            valid = False
+            while not valid:
+                # take sample
+                sample = draw_sobol_samples(bounds=bounds, n=1, q=1).squeeze(0).to(torch.double)
+                # print('single sample shape', sample.shape)
+                # check that it complies with inequality constraints
+                ineq_cons_met = True
+                for indices, coefficients, rhs in inequality_constraints:
+                    if torch.matmul(
+                        sample[:,indices], 
+                        torch.tensor(coefficients, dtype=torch.double)
+                    ) >= rhs:
+                        # keep going if the current constraint is met
+                        continue
+                    else:
+                        # break if one constraint is violated
+                        ineq_cons_met = False
+                        break 
+                if ineq_cons_met == True: # if all constraints are met
+                    valid = True
+            samples.append(sample)
+        
+        samples = torch.stack(samples).squeeze(1)
+    # NOTE:
+    # samples shape is `n_samples x bounds.shape[-1]`
+
+    if isinstance(function, Model):
+        func_vals = function.posterior(samples).mean
+    elif isinstance(function, AnalyticExpectedUtilityOfBestOption):
+        # EUBO only takes pairs of samples, so we reshape
+        # it also takes a single sample if we specify a winner, but we don't do it here
+        samples_EUBO = samples.reshape((n_samples//2, 2, samples.shape[-1]))
+        func_vals = function(samples_EUBO)
+    else:
+        func_vals = function(samples)
+
+    mean = torch.mean(func_vals).detach().item()
+    sd = torch.std(func_vals).detach().item()
+    min_val = torch.min(func_vals).detach().item()
+    max_val = torch.max(func_vals).detach().item()
+    quantile_vals = torch.quantile(func_vals, quantiles, interpolation = interpolation).detach()
+
+    return mean, sd, min_val, max_val, quantile_vals
