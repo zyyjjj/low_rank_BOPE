@@ -31,6 +31,7 @@ from sklearn.linear_model import LinearRegression
 
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            check_util_model_fit,
+                                           get_function_statistics,
                                            mc_max_outcome_error,
                                            mc_max_util_error)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
@@ -121,7 +122,7 @@ class RetrainingBopeExperiment:
 
         # logging model specifics
         self.outcome_models_dict = {}  # by (method, pe_strategy)
-        self.pref_models_dict = {} # by (method, pe_strategy)
+        self.util_models_dict = {} # by (method, pe_strategy)
         self.pref_data_dict = defaultdict(dict)  # (Y, util_vals, comps) by (method, pe_strategy)
         self.projections_dict = {} # stores projections to subspaces, by (method, pe_strategy)
         self.transforms_covar_dict = {} # specify outcome and input transforms, covariance modules, by (method, pe_strategy)
@@ -134,6 +135,8 @@ class RetrainingBopeExperiment:
        
         # estimate true optimal utility through sampling
         self.true_opt = find_true_optimal_utility(self.problem, self.util_func, n=5000)
+        # TODO: replace this with a more cmprehensive function statistics profile (e.g., min, max, median, quantiles)
+        # get_function_statistics()
 
     def generate_random_experiment_data(self, n, compute_util = True):
         r"""Generate n observations of experimental designs and outcomes.
@@ -159,7 +162,7 @@ class RetrainingBopeExperiment:
 
         if compute_util:
             util_vals = self.util_func(self.Y).detach()
-            comps = gen_comps(self.util_vals)
+            comps = gen_comps(util_vals)
 
             # put into pref_data_dict for different (method, pe_strategy) tuples
             for method in self.methods:
@@ -270,7 +273,6 @@ class RetrainingBopeExperiment:
                 "covar_module": make_modified_kernel(ard_num_dims=self.initial_latent_dim),
             }
 
-
         if projection is not None:
             self.projections_dict[(method, pe_strategy)] = projection
 
@@ -303,7 +305,6 @@ class RetrainingBopeExperiment:
                 self.transforms_covar_dict[(method, pe_strategy)]["outcome_tf"]
             )
         )
-
         mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
         fit_gpytorch_mll(mll_outcome)        
 
@@ -317,7 +318,7 @@ class RetrainingBopeExperiment:
         self.outcome_models_dict[(method, pe_strategy)] = outcome_model
 
 
-    def fit_pref_model(
+    def fit_util_model(
         self,
         Y,
         comps,
@@ -348,23 +349,22 @@ class RetrainingBopeExperiment:
             train_util_vals = self.pref_data_dict[(method, pe_strategy)]["util_vals"]
 
             print(
-                f"Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
-            print("train_Y, train_comps shapes: ", train_Y.shape, train_comps.shape)
+                f"== Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
 
             fit_model_succeed = False
-            pref_model_acc = None
+            util_model_acc = None
 
             for _ in range(3):
                 try:
-                    pref_model = self.fit_pref_model(
+                    util_model = self.fit_util_model(
                         train_Y,
                         train_comps,
                         input_transform=self.transforms_covar_dict[(method, pe_strategy)]["input_tf"],
                         covar_module=self.transforms_covar_dict[(method, pe_strategy)]["covar_module"],
                     )
                     # TODO: commented out to accelerate things
-                    # pref_model_acc = check_pref_model_fit(
-                    #     pref_model, problem=problem, util_func=util_func, n_test=1000, batch_eval=batch_eval
+                    # util_model_acc = check_util_model_fit(
+                    #     util_model, problem=problem, util_func=util_func, n_test=1000, batch_eval=batch_eval
                     # )
                     print("Pref model fitting successful")
                     fit_model_succeed = True
@@ -373,7 +373,7 @@ class RetrainingBopeExperiment:
                     continue
             if not fit_model_succeed:
                 print(
-                    "fit_pref_model() failed 3 times, stop current call of run_pref_learn()"
+                    "fit_util_model() failed 3 times, stop current call of run_pref_learn()"
                 )
 
             if pe_strategy == "EUBO-zeta":
@@ -384,9 +384,11 @@ class RetrainingBopeExperiment:
                         outcome_dim=train_Y.shape[-1]
                     ).to(torch.double) 
                     acqf = AnalyticExpectedUtilityOfBestOption(
-                        pref_model=pref_model,
+                        pref_model=util_model,
                         outcome_model=one_sample_outcome_model
                     ).to(torch.double) 
+                    acqf_landscape = get_function_statistics(
+                        function=acqf, bounds=self.problem.bounds)
                     found_valid_candidate = False
                     for _ in range(3):
                         try:
@@ -402,6 +404,8 @@ class RetrainingBopeExperiment:
                             acqf_vals.append(acqf_val.item())
 
                             found_valid_candidate = True
+                            print("EUBO mean, sd, min_val, max_val, quantile_vals: ", acqf_landscape)
+                            print("EUBO candidate acqf value: ", acqf_val)
                             break
                         except (ValueError, RuntimeError) as error:
                             print("error in optimizing EUBO: ", error)
@@ -429,6 +433,8 @@ class RetrainingBopeExperiment:
             cand_Y = cand_Y.detach().clone()
             cand_util_val = self.util_func(cand_Y)
             cand_comps = gen_comps(cand_util_val)
+            print("EUBO selected candidate util val: ", cand_util_val)
+            
 
             train_comps = torch.cat(
                 (train_comps, cand_comps + train_Y.shape[0])
@@ -443,7 +449,6 @@ class RetrainingBopeExperiment:
                 "comps": train_comps
             }
             
-        # TODO: not logging pref_model_acc and acqf_vals now
 
     def find_max_posterior_mean(self, method, pe_strategy, num_pref_samples=1):
 
@@ -452,14 +457,18 @@ class RetrainingBopeExperiment:
 
         within_result = {}
 
-        pref_model = self.fit_pref_model(
+        # NOTE: I thought about whether we could save computation by avoiding double-fitting
+        # the same pref model here and in the next call of run_pref_learning()
+        # But this function is called every three times run_pref_learning() is called
+        # so the amount of duplicated effort is not large 
+        util_model = self.fit_util_model(
             Y=train_Y,
             comps=train_comps,
             input_transform=self.transforms_covar_dict[(method, pe_strategy)]["input_tf"],
             covar_module=self.transforms_covar_dict[(method, pe_strategy)]["covar_module"]
         )
         sampler = SobolQMCNormalSampler(num_pref_samples)
-        pref_obj = LearnedObjective(pref_model=pref_model, sampler=sampler)
+        pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
 
         # find experimental candidate(s) that maximize the posterior mean utility
         post_mean_cand_X = gen_exp_cand(
@@ -475,6 +484,10 @@ class RetrainingBopeExperiment:
             self.problem.evaluate_true(post_mean_cand_X)).item()
         print(
             f"True utility of posterior mean utility maximizer: {post_mean_util:.3f}")
+        util_posterior_landscape = get_function_statistics(
+            function=util_model, bounds=self.problem.outcome_bounds)
+        print("util posterior mean function mean, sd, min_val, max_val, quantile_vals: ", 
+              util_posterior_landscape)
 
         within_result = {
             "n_comps": train_comps.shape[0],
@@ -485,6 +498,12 @@ class RetrainingBopeExperiment:
             "candidate": post_mean_cand_X
         }
 
+        # check util model fit here
+        util_model_acc = check_util_model_fit(
+            util_model, self.problem, self.util_func, 
+            n_test=1000, batch_eval=True)
+        within_result["util_model_acc"] = util_model_acc
+
         return within_result
 
     def generate_final_candidate(self, method, pe_strategy):
@@ -492,7 +511,7 @@ class RetrainingBopeExperiment:
         train_Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
         train_comps = self.pref_data_dict[(method, pe_strategy)]["comps"]
 
-        pref_model = self.fit_pref_model(
+        util_model = self.fit_util_model(
             Y=train_Y,
             comps=train_comps,
             input_transform=self.transforms_covar_dict[(method, pe_strategy)]["input_tf"],
@@ -500,11 +519,11 @@ class RetrainingBopeExperiment:
         )
         # log accuracy of final utility model
         util_model_acc = check_util_model_fit(
-            pref_model, self.problem, self.util_func, 
+            util_model, self.problem, self.util_func, 
             n_test=1000, batch_eval=True)
 
         sampler = SobolQMCNormalSampler(1)
-        pref_obj = LearnedObjective(pref_model=pref_model, sampler=sampler)
+        pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
 
         # find experimental candidate(s) that maximize the posterior mean utility
         cand_X = gen_exp_cand(
@@ -559,7 +578,7 @@ class RetrainingBopeExperiment:
         self.subspace_diagnostics[(method, pe_strategy)]["max_outcome_error"].append(max_outcome_error)
         
 
-    def generate_random_pref_data(self, method, pe_strategy,n):
+    def generate_random_pref_data(self, method, pe_strategy, n):
 
         X = (
             draw_sobol_samples(
@@ -576,8 +595,6 @@ class RetrainingBopeExperiment:
             X).rsample().squeeze(0).detach()
         util_val = self.util_func(Y)
         comps = gen_comps(util_val)
-
-        # TODO: check the below procedure of appending to existing data is correct
 
         self.pref_data_dict[(method, pe_strategy)]["comps"] = torch.cat(
             (self.pref_data_dict[(method, pe_strategy)]["comps"],
@@ -599,9 +616,7 @@ class RetrainingBopeExperiment:
 
         for pe_strategy in self.pe_strategies:
             self.compute_projections(method, pe_strategy)
-            self.fit_outcome_model(method, pe_strategy)
-        # TODO: import question: if we update the subspace, do we re-learn the outcome model on those subspaces? Yes
-        
+            self.fit_outcome_model(method, pe_strategy)        
 
     def run_PE_stage(self, method):
         # initial result stored in self.pref_data_dict
@@ -633,6 +648,7 @@ class RetrainingBopeExperiment:
                 # relearn subspace if method calls for retraining
                 # TODO: check correctness
                 if method.endswith("rt"):
+                    print("Retraining")
                     self.compute_projections(method, pe_strategy)
                     self.fit_outcome_model(method, pe_strategy)
                     # run diagnostics on the updated subspaces
