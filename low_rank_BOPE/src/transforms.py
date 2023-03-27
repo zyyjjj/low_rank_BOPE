@@ -701,6 +701,8 @@ def fit_pca(train_Y: Tensor, var_threshold: float=0.9, weights: Optional[Tensor]
         pca_axes: `latent_dim x outcome_dim` tensor where each row is a pca axis
     """
 
+    # TODO: maybe add optional arg num_axes
+
     # unweighted pca
     if weights is None:
         U, S, V = torch.svd(train_Y - train_Y.mean(dim=0))

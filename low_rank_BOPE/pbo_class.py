@@ -23,19 +23,10 @@ from botorch.utils.sampling import draw_sobol_samples
 from sklearn.linear_model import LinearRegression
 from torch import Tensor
 
-from low_rank_BOPE.src.diagnostics import check_util_model_fit
+from low_rank_BOPE.src.diagnostics import check_util_model_fit, get_function_statistics
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
-from low_rank_BOPE.src.pref_learning_helpers import (  # find_max_posterior_mean, # TODO: later see if we want the error-handled version;;; fit_pref_model, # TODO: later see if we want the error-handled version
-    ModifiedFixedSingleSampleModel, find_true_optimal_utility,
-    fit_outcome_model, gen_comps, gen_exp_cand)
-from low_rank_BOPE.src.transforms import (InputCenter,
-                                          LinearProjectionInputTransform,
-                                          LinearProjectionOutcomeTransform,
-                                          PCAInputTransform,
-                                          PCAOutcomeTransform,
-                                          SubsetOutcomeTransform,
-                                          compute_weights, fit_pca,
-                                          generate_random_projection,
+from low_rank_BOPE.src.pref_learning_helpers import gen_comps
+from low_rank_BOPE.src.transforms import (compute_weights, fit_pca,
                                           get_latent_ineq_constraints)
 
 
@@ -98,7 +89,7 @@ class PboExperiment:
             self.methods = ["uw_pca"] + [m for m in methods if m != "uw_pca"]
             print('self.methods, ', self.methods)
         else:
-            # if "unweighted_pca" is not run and latent_dim is not specified
+            # if "uw_pca" is not run and latent_dim is not specified
             # set self.latent_dim by hand
             self.methods = methods
             if not self.latent_dim:
@@ -284,8 +275,6 @@ class PboExperiment:
                 found_valid_candidate = False
                 for _ in range(3):
                     try:
-                        # TODO: save acqf_val and compare with that of other randomly points
-                        # does this warrant its own helper function?
                         cand, acqf_val = optimize_acqf(
                             acq_function=acqf,
                             q=2,
@@ -308,6 +297,8 @@ class PboExperiment:
                         "stop current call of run_pref_learn()"
                     )
                     return
+            
+                # TODO: insert diagnostics that probe EUBO's landscape get_function_statistics()
 
             if latent:
                 cand_Y = torch.matmul(cand.to(torch.double), self.projections_dict[method])
@@ -401,6 +392,8 @@ class PboExperiment:
             )            
 
     def run_PBO_loop(self):
+        # TODO: before everything, run get_function_statistics() on the true utility function
+        # [P1] should I return all the function values so that we can make histograms?
         self.generate_initial_data(n=self.initial_pref_batch_size)
         for method in self.methods:
             try:

@@ -263,7 +263,6 @@ def check_outcome_model_fit(
     mse = ((test_posterior_mean - test_Y)**2 / test_Y**2).mean(axis=0).detach().sum().item()
 
     se_rel = torch.sum((test_posterior_mean - test_Y) ** 2, dim=1) / torch.sum(test_Y**2, dim=1)
-    print(se_rel.shape)
     mse_rel = se_rel.mean(axis=0).item()
 
     return mse_rel
@@ -364,18 +363,19 @@ def get_function_statistics(
     in the input domain of a function / model.
 
     Args:
-        function: could be acquisition function or GP model. If GP model, must be
-            scalar-output, and by default we look at the posterior mean
-        bounds: bounds on the input space
+        function: a scalar-output function (e.g., utility function or 
+            acquisition function) or GP model. If GP model, must be
+            single-output; by default we look at its posterior mean
+        bounds: `2 x n_dim` tensor specifying bounds on the input space
         inequality_constraints: inequality constraints on the input space, 
             same format as passed into optimize_acqf():
-            A list of tuples (indices, coefficients, rhs),
-            with each tuple encoding an inequality constraint of the form
-            `\sum_i (latent_var[indices[i]] * coefficients[i]) >= rhs`
+                A list of tuples (indices, coefficients, rhs),
+                with each tuple encoding an inequality constraint of the form
+                `\sum_i (latent_var[indices[i]] * coefficients[i]) >= rhs`
         n_samples: number of samples to take
         interpolation: interpolation method in torch.quantile()
     Returns:
-        A few statistics of the function output value
+        A few statistics of the function output values
     """
 
     # TODO: think: would rejection sampling be inefficient if 
@@ -390,7 +390,6 @@ def get_function_statistics(
             while not valid:
                 # take sample
                 sample = draw_sobol_samples(bounds=bounds, n=1, q=1).squeeze(0).to(torch.double)
-                # print('single sample shape', sample.shape)
                 # check that it complies with inequality constraints
                 ineq_cons_met = True
                 for indices, coefficients, rhs in inequality_constraints:
@@ -409,8 +408,7 @@ def get_function_statistics(
             samples.append(sample)
         
         samples = torch.stack(samples).squeeze(1)
-    # NOTE:
-    # samples shape is `n_samples x bounds.shape[-1]`
+    # NOTE: samples shape is `n_samples x bounds.shape[-1]`
 
     if isinstance(function, Model):
         func_vals = function.posterior(samples).mean
