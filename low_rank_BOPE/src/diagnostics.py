@@ -1,5 +1,5 @@
 import sys
-
+import copy
 import gpytorch
 import torch
 from botorch.models.model import Model
@@ -353,6 +353,7 @@ def check_util_model_fit_wrapper(problem, util_func, models_dict, seed = 0, n_te
 def get_function_statistics(
     function: torch.nn.Module or Model, 
     bounds: Tensor, 
+    inner_function: torch.nn.Module or Model = None,
     inequality_constraints: List[Tuple] = None, 
     n_samples: int = 1024,
     quantiles: Tensor = torch.tensor([0.25, 0.5, 0.75], dtype=torch.double),
@@ -366,7 +367,12 @@ def get_function_statistics(
         function: a scalar-output function (e.g., utility function or 
             acquisition function) or GP model. If GP model, must be
             single-output; by default we look at its posterior mean
-        bounds: `2 x n_dim` tensor specifying bounds on the input space
+        bounds: `2 x n_dim` tensor specifying bounds on the input space.
+            If inner_function is None, this is the bounds on the domain of function;
+            else, this is the bounds on the domain of inner_function.
+        inner_function: a scalar-output function (e.g., outcome function) or 
+            GP model (e.g., outcome model). If GP model, must be
+            single-output; by default we look at its posterior mean.
         inequality_constraints: inequality constraints on the input space, 
             same format as passed into optimize_acqf():
                 A list of tuples (indices, coefficients, rhs),
@@ -410,15 +416,23 @@ def get_function_statistics(
         samples = torch.stack(samples).squeeze(1)
     # NOTE: samples shape is `n_samples x bounds.shape[-1]`
 
+    if inner_function is not None:
+        if isinstance(inner_function, Model):
+            inner_samples = inner_function.posterior(samples).mean
+        else:
+            inner_samples = inner_function(samples)
+    else:
+        inner_samples = copy.deepcopy(samples)
+
     if isinstance(function, Model):
-        func_vals = function.posterior(samples).mean
+        func_vals = function.posterior(inner_samples).mean
     elif isinstance(function, AnalyticExpectedUtilityOfBestOption):
         # EUBO only takes pairs of samples, so we reshape
         # it also takes a single sample if we specify a winner, but we don't do it here
-        samples_EUBO = samples.reshape((n_samples//2, 2, samples.shape[-1]))
+        samples_EUBO = inner_samples.reshape((n_samples//2, 2, inner_samples.shape[-1]))
         func_vals = function(samples_EUBO)
     else:
-        func_vals = function(samples)
+        func_vals = function(inner_samples)
 
     mean = torch.mean(func_vals).detach().item()
     sd = torch.std(func_vals).detach().item()

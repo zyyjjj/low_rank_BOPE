@@ -44,6 +44,8 @@ from low_rank_BOPE.src.transforms import (LinearProjectionInputTransform,
                                           compute_weights, fit_pca,
                                           generate_random_projection)
 
+def defaultdict_list():
+    return defaultdict(list)
 
 class RetrainingBopeExperiment:
 
@@ -131,12 +133,19 @@ class RetrainingBopeExperiment:
         self.PE_time_dict = {}
         self.PE_session_results = defaultdict(dict) # [method][pe_strategy]
         self.final_candidate_results = defaultdict(dict) # [method][pe_strategy]
-        self.subspace_diagnostics = defaultdict(lambda: defaultdict(list)) # [(method, pe_strategy)]
+        self.subspace_diagnostics = defaultdict(defaultdict_list) # [(method, pe_strategy)][diag_metric] = list
+        self.util_postmean_landscape = defaultdict(list) # [(method, pe_strategy)] = list of statistics tuples
+
        
         # estimate true optimal utility through sampling
         self.true_opt = find_true_optimal_utility(self.problem, self.util_func, n=5000)
-        # TODO: replace this with a more cmprehensive function statistics profile (e.g., min, max, median, quantiles)
-        # get_function_statistics()
+        # print out more comprehensive util function landscape
+        true_util_landscape = get_function_statistics(
+            function=self.util_func, 
+            bounds=self.problem.bounds, 
+            inner_function=self.problem
+        )
+        print("True utility landscape: ", true_util_landscape)
 
     def generate_random_experiment_data(self, n, compute_util = True):
         r"""Generate n observations of experimental designs and outcomes.
@@ -307,8 +316,6 @@ class RetrainingBopeExperiment:
         )
         mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
         fit_gpytorch_mll(mll_outcome)        
-
-        # should we observe comparisons in first stage? suppose we do, then we can initialize the util model w more data
         
         model_fitting_time = time.time() - start_time
         rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000) # TODO: double check MSE metric we are using
@@ -352,7 +359,6 @@ class RetrainingBopeExperiment:
                 f"== Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
 
             fit_model_succeed = False
-            util_model_acc = None
 
             for _ in range(3):
                 try:
@@ -406,6 +412,7 @@ class RetrainingBopeExperiment:
                             found_valid_candidate = True
                             print("EUBO mean, sd, min_val, max_val, quantile_vals: ", acqf_landscape)
                             print("EUBO candidate acqf value: ", acqf_val)
+                            # TODO: save diagnostics
                             break
                         except (ValueError, RuntimeError) as error:
                             print("error in optimizing EUBO: ", error)
@@ -484,10 +491,18 @@ class RetrainingBopeExperiment:
             self.problem.evaluate_true(post_mean_cand_X)).item()
         print(
             f"True utility of posterior mean utility maximizer: {post_mean_util:.3f}")
+        # look at util_model(outcome_model(x)) for a large number of sampled x
         util_posterior_landscape = get_function_statistics(
-            function=util_model, bounds=self.problem.outcome_bounds)
+            function=util_model, 
+            # bounds=self.problem.outcome_bounds,
+            bounds=self.problem.bounds,
+            inner_function=self.outcome_models_dict[(method, pe_strategy)]
+        )
         print("util posterior mean function mean, sd, min_val, max_val, quantile_vals: ", 
               util_posterior_landscape)
+        # TODO: util posterior seems super flat and almost 0 everywhere if we sample directly in the outcome space
+        # Trying out: composing util model with outcome model -- is it still as flat?
+        self.util_postmean_landscape[(method, pe_strategy)].append(util_posterior_landscape)
 
         within_result = {
             "n_comps": train_comps.shape[0],
@@ -620,7 +635,6 @@ class RetrainingBopeExperiment:
 
     def run_PE_stage(self, method):
         # initial result stored in self.pref_data_dict
-        
 
         for pe_strategy in self.pe_strategies:
 
@@ -646,7 +660,6 @@ class RetrainingBopeExperiment:
                     self.find_max_posterior_mean(method, pe_strategy)
                 )
                 # relearn subspace if method calls for retraining
-                # TODO: check correctness
                 if method.endswith("rt"):
                     print("Retraining")
                     self.compute_projections(method, pe_strategy)
@@ -693,7 +706,10 @@ class RetrainingBopeExperiment:
                         'pref_data_trial=' + str(self.trial_idx) + '.th')
                 torch.save(self.subspace_diagnostics, self.output_path +
                         'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
+                torch.save(self.util_postmean_landscape, self.output_path +
+                        'util_postmean_trial=' + str(self.trial_idx) + '.th')
             
-            except:
+            except Exception as e:
+                print('Error occurred: ', e)
                 print(f"============= {method} failed, skipping =============")
                 continue
