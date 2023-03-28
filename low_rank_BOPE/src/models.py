@@ -156,7 +156,8 @@ def fit_LCM_model(
 
 # modified kernel with change in hyperpriors
 def make_modified_kernel(ard_num_dims, a=0.2, b=5.0):
-    ls_prior = GammaPrior(1.2, 0.5)
+    # ls_prior = GammaPrior(1.2, 0.5)
+    ls_prior = GammaPrior(2.4, 2.7) # consistent w Jerry's Mar22 update
     ls_prior_mode = (ls_prior.concentration - 1) / ls_prior.rate
 
     covar_module = ScaleKernel(
