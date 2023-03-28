@@ -14,21 +14,21 @@ sys.path.append('..')
 
 
 def subspace_recovery_error(
-    axes_learned: Tensor, ground_truth_principal_axes: Tensor
+    projection: Tensor, ground_truth_principal_axes: Tensor
 ) -> float:
     r"""
     Compute $(\|(I-VV^T)A\|_F / \|A\|_F)^2$, where
     A = ground_truth_principal_axes transposed, each column a ground truth
     principal axis for data generation;
-    V = axes_learned transposed, each column a learned principal axis.
+    V = projection transposed, each column a learned principal axis.
 
-    This quantity serves as a diagnostic of ``how well axes_learned
+    This quantity serves as a diagnostic of ``how well projection
     recovers the true subspace from which the outcomes are generated".
     This can be used in synthetic experiments where we know the
     underlying outcome generation process.
 
     Args:
-        axes_learned: num_axes x outcome_dim tensor,
+        projection: num_axes x outcome_dim tensor,
             each row a learned principal axis
         ground_truth_principal_axes: true_latent_dim x outcome_dim tensor,
             each row a ground truth principal axis
@@ -44,7 +44,7 @@ def subspace_recovery_error(
     # I-VV^T, projection onto orthogonal space of V, shape is outcome_dim x outcome_dim
     orth_proj = (
         torch.eye(outcome_dim) -
-        torch.transpose(axes_learned, -2, -1) @ axes_learned
+        torch.transpose(projection, -2, -1) @ projection
     )
 
     # (I-VV^T)A
@@ -60,11 +60,11 @@ def subspace_recovery_error(
     return frac_squared_norm.item()
 
 
-def empirical_max_outcome_error(Y: Tensor, axes_learned: Tensor) -> float:
+def empirical_max_outcome_error(Y: Tensor, projection: Tensor) -> float:
     r"""
     Compute the diagnostic $max_i \|(I-VV^T)y_i\|_2$,
     where $y_i$ is the ith row of Y, representing an outcome data point,
-    and V = axes_learned transposed, each column a learned principal axis.
+    and V = projection transposed, each column a learned principal axis.
 
     This quantity serves as a data-dependent empirical estimate of
     ``worst case magnitude of unmodeled outcome component",
@@ -73,7 +73,7 @@ def empirical_max_outcome_error(Y: Tensor, axes_learned: Tensor) -> float:
     Args:
         Y: num_samples x outcome_dim tensor,
             each row an outcome data point
-        axes_learned: num_axes x outcome_dim tensor,
+        projection: num_axes x outcome_dim tensor,
             each row a learned principal axis
     Returns:
         maximum norm, among the data points in Y, of the outcome component
@@ -85,7 +85,7 @@ def empirical_max_outcome_error(Y: Tensor, axes_learned: Tensor) -> float:
     # I-VV^T, projection onto orthogonal space of V, shape is outcome_dim x outcome_dim
     orth_proj = (
         torch.eye(outcome_dim) -
-        torch.transpose(axes_learned, -2, -1) @ axes_learned
+        torch.transpose(projection, -2, -1) @ projection
     )
 
     # Y @ orth_proj is num_samples x outcome_dim
@@ -94,19 +94,19 @@ def empirical_max_outcome_error(Y: Tensor, axes_learned: Tensor) -> float:
     return torch.max(Y_orth_proj_norm).item()
 
 
-def mc_max_outcome_error(problem, axes_learned, n_test) -> float:
+def mc_max_outcome_error(problem, projection, n_test) -> float:
     r"""
-    Compute the diagnostic $\mathbb{E}[max_x \|(I-VV^T)f(x)\|_2]$,
-    through Monte Carlo sampling. V = axes_learned transposed,
+    Compute the diagnostic $max_x \|(I-VV^T)f(x)\|_2$,
+    through Monte Carlo sampling. V = projection transposed,
     where each column of V is a learned principal axis.
 
     This quantity is a Monte Carlo estimate of
-    ``expected worst case magnitude of unmodeled outcome component",
+    ``worst case magnitude of unmodeled outcome component",
     which reflects PCA representation quality.
 
     Args:
         problem: a TestProblem, maps inputs to outcomes
-        axes_learned: num_axes x outcome_dim tensor,
+        projection: num_axes x outcome_dim tensor,
             each row a learned principal axis
         n_test: number of Monte Carlo samples to take
     Returns:
@@ -122,7 +122,7 @@ def mc_max_outcome_error(problem, axes_learned, n_test) -> float:
     # I-VV^T, projection onto orthogonal space of V, shape is outcome_dim x outcome_dim
     orth_proj = (
         torch.eye(outcome_dim) -
-        torch.transpose(axes_learned, -2, -1) @ axes_learned
+        torch.transpose(projection, -2, -1) @ projection
     )
 
     # test_Y @ orth_proj is num_samples x outcome_dim
@@ -131,11 +131,11 @@ def mc_max_outcome_error(problem, axes_learned, n_test) -> float:
     return torch.max(test_Y_orth_proj_norm).item()
 
 
-def empirical_max_util_error(Y, axes_learned, util_func) -> float:
+def empirical_max_util_error(Y, projection, util_func) -> float:
     r"""
     Compute the diagnostic $max_i \|g(y_i) - g(VV^T y_i)\|_2$,
     where $y_i$ is the ith row of Y, representing an outcome data point,
-    and V = axes_learned transposed, each column a learned principal axis.
+    and V = projection transposed, each column a learned principal axis.
 
     This quantity serves as a data-dependent empirical estimate of
     ``worst case magnitude of utility recovery error", which reflects
@@ -145,7 +145,7 @@ def empirical_max_util_error(Y, axes_learned, util_func) -> float:
     Args:
         Y: num_samples x outcome_dim tensor,
             each row an outcome data point
-        axes_learned: num_axes x outcome_dim tensor,
+        projection: num_axes x outcome_dim tensor,
             each row a learned principal axis
         util_func: ground truth utility function (outcome -> utility)
     Returns:
@@ -155,7 +155,7 @@ def empirical_max_util_error(Y, axes_learned, util_func) -> float:
     """
 
     # VV^T, projection onto subspace spanned by V, shape is outcome_dim x outcome_dim
-    proj = torch.transpose(axes_learned, -2, -1) @ axes_learned
+    proj = torch.transpose(projection, -2, -1) @ projection
 
     # compute util(Y) - util(VV^T Y)
     util_difference = torch.abs(util_func(Y) - util_func(Y @ proj))
@@ -163,26 +163,26 @@ def empirical_max_util_error(Y, axes_learned, util_func) -> float:
     return torch.max(util_difference).item()
 
 
-def mc_max_util_error(problem, axes_learned, util_func, n_test) -> float:
+def mc_max_util_error(problem, projection, util_func, n_test) -> float:
     r"""
-    Compute the diagnostic $\mathbb{E}[max_x \|g(f(x)) - g(VV^T f(x))\|_2]$,
-    through Monte Carlo sampling. V = axes_learned transposed, where
+    Compute the diagnostic $max_x \|g(f(x)) - g(VV^T f(x))\|_2$,
+    through Monte Carlo sampling. V = projection transposed, where
     each column of V is a learned principal axis. 
     f is the true outcome function and g is the true utility function.
 
-    This quantity is a Monte Carlo estimate of ``expected worst case
+    This quantity is a Monte Carlo estimate of ``worst case
     magnitude of utility recovery error", which reflects
     how well we can learn the utility function with the input space being
     outcome space projected onto the subspace V.
 
     Args:
         problem: a TestProblem, maps inputs to outcomes
-        axes_learned: num_axes x outcome_dim tensor,
+        projection: num_axes x outcome_dim tensor,
             each row a learned principal axis
         util_func: ground truth utility function (outcome -> utility)
         n_test: number of test points to estimate the expectation
     Returns:
-        expected maximum difference, among the sampled data points, of the
+        maximum difference, among the sampled data points, of the
             true utility value and the utility value of the projection
             of sampled outcome data onto the subpace V.
     """
@@ -191,13 +191,44 @@ def mc_max_util_error(problem, axes_learned, util_func, n_test) -> float:
     test_Y = problem.evaluate_true(test_X).detach()
 
     # VV^T, projection onto subspace spanned by V, `outcome_dim x outcome_dim`
-    proj = torch.transpose(axes_learned, -2, -1) @ axes_learned
+    proj = torch.transpose(projection, -2, -1) @ projection
 
     # compute util(Y) - util(VV^T Y)
     test_util_difference = torch.abs(
         util_func(test_Y) - util_func(test_Y @ proj))
 
     return torch.max(test_util_difference).item()
+
+
+def best_util_in_subspace(problem, projection, util_func, n_test = 1024):
+    r"""
+    Compute the diagnostic $max_x g(VV^T f(x))$,
+    through Monte Carlo sampling. V = projection transposed, where
+    each column of V is a learned principal axis. 
+    f is the true outcome function and g is the true utility function.
+
+    This quantity is a Monte Carlo estimate of ``best achievable utility
+    value in the outcome subspace defined by projection", which can serve
+    as a diagnostic for the subspace quality.
+
+    Args:
+        problem: a TestProblem, maps inputs to outcomes
+        projection: num_axes x outcome_dim tensor,
+            each row a learned principal axis
+        util_func: ground truth utility function (outcome -> utility)
+        n_test: number of test points to estimate the expectation
+    Returns:
+        maximum utility values of sampled outcome vectors projected onto the 
+            subspace V
+    """
+
+    test_X = generate_random_inputs(problem, n_test).detach()
+    test_Y = problem.evaluate_true(test_X).detach()
+
+    # VV^T, projection onto subspace spanned by V, `outcome_dim x outcome_dim`
+    proj = torch.transpose(projection, -2, -1) @ projection
+
+    return torch.max(util_func(test_Y @ proj)).item()
 
 
 def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:

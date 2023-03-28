@@ -32,6 +32,7 @@ from sklearn.linear_model import LinearRegression
 from low_rank_BOPE.src.diagnostics import (check_outcome_model_fit,
                                            check_util_model_fit,
                                            get_function_statistics,
+                                           best_util_in_subspace,
                                            mc_max_outcome_error,
                                            mc_max_util_error)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
@@ -46,6 +47,10 @@ from low_rank_BOPE.src.transforms import (LinearProjectionInputTransform,
 
 def defaultdict_list():
     return defaultdict(list)
+
+
+# TODO: maybe an important diagnostic is the best util value in the subspace
+# this is a subspace quality indicator
 
 class RetrainingBopeExperiment:
 
@@ -578,20 +583,26 @@ class RetrainingBopeExperiment:
 
         max_outcome_error = mc_max_outcome_error(
             problem=self.problem,
-            axes_learned=projection,
+            projection=projection,
             n_test=n_test
         )
         
         max_util_error = mc_max_util_error(
             problem=self.problem,
-            axes_learned=projection,
+            projection=projection,
             util_func=self.util_func,
             n_test=n_test
         )
-        
+
+        max_subspace_util = best_util_in_subspace(
+            problem=self.problem, 
+            projection=projection, 
+            util_func=self.util_func
+        )
+
         self.subspace_diagnostics[(method, pe_strategy)]["max_util_error"].append(max_util_error)
         self.subspace_diagnostics[(method, pe_strategy)]["max_outcome_error"].append(max_outcome_error)
-        
+        self.subspace_diagnostics[(method, pe_strategy)]["best_util"].append(max_subspace_util)
 
     def generate_random_pref_data(self, method, pe_strategy, n):
 
@@ -621,7 +632,6 @@ class RetrainingBopeExperiment:
         self.pref_data_dict[(method, pe_strategy)]["util_vals"] = torch.cat(
             (self.pref_data_dict[(method, pe_strategy)]["util_vals"], util_val)
         )
-
 
 
 # ======== Putting it together into steps ========
