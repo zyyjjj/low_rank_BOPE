@@ -8,6 +8,8 @@ import os
 
 colors_dict = {
     "pca": "tab:red", 
+    "uwpca": "tab:red",
+    "uwpca_rt": "tab:pink",
     "pcr": "tab:cyan", 
     "st": "tab:blue", 
     "true_proj": "tab:pink",
@@ -25,6 +27,8 @@ marker_dict = {"$EUBO-\zeta$": "o", "True Utility": "s", "Random-f": "^"}
 labels_dict = {
     "st": "Indep", 
     "pca": "PCA", 
+    "uwpca": "unweighted PCA",
+    "uwpca_rt": "unweighted PCA retraining",
     "pcr": "PCR", 
     "random_linear_proj": "Rand-linear-proj", 
     "random_subset": "Rand-subset", 
@@ -42,7 +46,9 @@ x_jitter_dict = {
     "mtgp": 0.75, 
     "lmc1": 0.4, 
     "lmc2": 0.5, 
-    "pcr": 0.05
+    "pcr": 0.05,
+    "uwpca": 0.1, 
+    "uwpca_rt": 0.2,
 }
 
 
@@ -151,4 +157,4 @@ def plot_candidate_over_comps_multiple(
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         
-        f.savefig(save_path + save_file_name)
+        f.savefig(save_path + save_file_name, bbox_inches = "tight")
