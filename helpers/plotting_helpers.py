@@ -52,8 +52,7 @@ x_jitter_dict = {
 }
 
 
-# ===== Function for plotting =====
-
+# ===== Functions for plotting =====
 
 def plot_candidate_over_comps_multiple(
     outputs: dict,
@@ -80,8 +79,8 @@ def plot_candidate_over_comps_multiple(
         methods: list of methods to show
         pe_strategy: single PE strategy to plot
         num_plot_datapoints: number of checkpoints to show in the plot
-        
-    # TODO: find a cleaner way to create x_jitter_dict; can we not hardcode this?
+        save_path: directory to save the figure, if saving
+        save_file_name: file name under save_path to save the figure, if saving
     """
 
     f, axs = plt.subplots(1, len(problem_l), figsize=(10, 3))
@@ -158,3 +157,128 @@ def plot_candidate_over_comps_multiple(
             os.makedirs(save_path)
         
         f.savefig(save_path + save_file_name, bbox_inches = "tight")
+
+
+def plot_result_metric_multiple(
+    outputs: dict,
+    problem_type: str,
+    problem_l: List[str], 
+    metric: str, 
+    ylabel_text: str,
+    pe_strategies = ["$EUBO-\zeta$"],
+    save_path: Optional[str] = None,
+    save_file_name: Optional[str] = None,
+    **kwargs
+):
+
+    r"""
+    Create multiple side-by-side plots of result metrics.
+    Each plot is for a different problem (specified in problem_l),
+    with one pe strategy and multiple methods.
+
+    Args:
+        outputs: big nested dictionary storing loaded experiment outputs
+        problem_type: one of {"synthetic", "shapes", "cars",}
+            this helps the function decide how to parse input/outcome dims from the problem name
+        problem_l: list of problem names
+        metric: string specifying the metric to plot
+            one of {"candidate_util", "PE_time", "util_model_acc"}
+        ylabel_text: English text to put on the y label
+            "candidate_util": "Utility of final candidate"
+            "PE_time": "Time consumed in preference exploration"
+            "util_model_acc": "Final utility model accuracy"
+            # TODO: with retraining, some of these are logged multiple times in one trial
+        pe_strategies: list of PE strategies (usually I'd just put one)
+        save_path: directory to save the figure, if saving
+        save_file_name: file name under save_path to save the figure, if saving
+    """
+
+    f, axs = plt.subplots(
+        1, 
+        len(problem_l), 
+        figsize=kwargs.get("figsize", (10,3))
+    )
+
+    for i in range(len(problem_l)):
+        problem = problem_l[i]
+
+        if problem_type == "synthetic":
+            _, rank, _, input_dim, outcome_dim, alpha, noise_std = problem.split('_')
+        elif problem_type == "shapes":
+            input_dim = 4
+            num_pixels, _ = problem.split("by")
+            outcome_dim = int(num_pixels) ** 2
+
+        available_trials = outputs[problem]["exp_candidate_results"].keys()
+
+        exp_candidate_results = [res for i in available_trials for res in outputs[problem]["exp_candidate_results"][i]]
+
+        exp_candidate_results_random = []
+        exp_candidate_results_nonrandom = []
+
+        for res in exp_candidate_results:
+            if res["strategy"] == "Random Experiment":
+                exp_candidate_results_random.append(res)
+            else:
+                exp_candidate_results_nonrandom.append(res)
+
+        # Prepare the 2nd experimentation batch data for plot
+        exp_df = pd.DataFrame(exp_candidate_results_nonrandom)
+        exp_df["strategy"] = exp_df["strategy"].str.replace("EUBO-zeta", r"$EUBO-\\zeta$")
+        exp_df["strategy"] = pd.Categorical(
+            exp_df["strategy"],
+            ["True Utility", "$EUBO-\zeta$", "Random-f"],
+        )
+
+        exp_df = (
+            exp_df.groupby(["method", "strategy"], sort=False)
+            .agg({metric: ["mean", "sem"]}) # the quantity we plot is specified in `metric`
+            .droplevel(level=0, axis=1)
+            .reset_index()
+        )
+
+        for name, group in exp_df.groupby(["method", "strategy"]):
+
+            if group["method"].values[0] == 'mtgp':
+                continue
+
+            if group["strategy"].values[0] in pe_strategies:
+
+                if not group["mean"].isna().all():
+                    axs[i].errorbar(
+                        x=[group["method"].values[0] + "_" + group["strategy"].values[0]],
+                        y=group["mean"],
+                        yerr=kwargs.get("yerr_sems", 1.96) * group["sem"],
+                        fmt=marker_dict[name[1]],
+                        markersize=8,
+                        label=labels_dict[group["method"].values[0]] + "_" + group["strategy"].values[0],
+                        linewidth=1.5,
+                        capsize=3,
+                        color=colors_dict[name[0]],
+                    )
+
+        axs[i].set_title(
+            f"{problem}\n d={input_dim}, k={outcome_dim}", 
+            fontsize=kwargs.get("title_fontsize", 12.5)
+        )
+        axs[i].set_xticks([])
+
+    axs[0].legend(
+        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.1, -0.2)), 
+        loc=kwargs.get("legend_loc", "lower left"), 
+        ncol=kwargs.get("legend_ncols", 5), 
+        fontsize=kwargs.get("legend_fontsize", 12)
+    )
+    axs[0].set_ylabel(ylabel_text)
+
+    if save_path is not None:
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        
+        f.savefig(save_path + save_file_name, bbox_inches = "tight")
+
+
+
+
+# TODO: after the changes for retraining, I probably need to have another function 
+# plotting these metrics over addition of datapoints? Need to think this through
