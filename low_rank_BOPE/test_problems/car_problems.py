@@ -3,12 +3,10 @@
 # https://github.com/facebookresearch/preference-exploration/blob/main/test_functions.py
 
 import torch
-
 # from botorch.distributions.distributions import Kumaraswamy # TODO: fix this later
 from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.test_functions.multi_objective import DTLZ2, VehicleSafety
 from torch import Tensor
-
 
 # probit noise such that the DM makes 10% error for top 10% utilty using random X
 probit_noise_dict = {
@@ -659,7 +657,8 @@ def problem_setup(problem_str, noisy=False, **tkwargs):
 
 class AugmentedProblem(MultiObjectiveTestProblem):
     def __init__(
-        self, problem, noise, augmented_dim = None, duplicate=False, n_duplicates=None
+        self, problem, noise, augmented_dim = None, duplicate=False, n_duplicates=None,
+        problem_seed = None
     ):
 
         self._bounds = problem.bounds
@@ -667,30 +666,52 @@ class AugmentedProblem(MultiObjectiveTestProblem):
 
         super().__init__()
         self.base_problem = problem
+        self.dim = problem.dim
         self.base_outcome_dim = problem.num_objectives
         self.noise = noise
         self.bounds = problem.bounds
         self.duplicate = duplicate
         self.n_duplicates = n_duplicates
+        if problem_seed is not None:
+            self.problem_seed = problem_seed
+        else:
+            self.problem_seed = 1234
+
+        torch.manual_seed(self.problem_seed)
+
         if self.duplicate:
             self.outcome_dim = self.base_outcome_dim * self.n_duplicates
         else:
             self.outcome_dim = augmented_dim
+            self.outcome_projection_matrix = torch.randn(
+                (self.base_outcome_dim, self.outcome_dim), dtype=torch.double
+            )
+            print("Generated outcome projection matrix: ", self.outcome_projection_matrix)
 
     def evaluate_true(self, X):
+
+        base_outcome = self.base_problem.evaluate_true(X)
+
         if not self.duplicate:
-            res = torch.cat(
-                (
-                    self.base_problem.evaluate_true(X),
-                    torch.randn(
-                        (X.shape[0], int(self.outcome_dim - self.base_outcome_dim))
-                    )
-                    * self.noise,
-                ),
-                dim=1,
-            )
+
+            # Previously: concatenate base_outcome with a lot of pure noise
+            # res = torch.cat(
+            #     (
+            #         self.base_problem.evaluate_true(X),
+            #         torch.randn(
+            #             (X.shape[0], int(self.outcome_dim - self.base_outcome_dim))
+            #         )
+            #         * self.noise,
+            #     ),
+            #     dim=1,
+            # )
+
+            # project base_outcome to higher-dimensional space
+            res = torch.matmul(base_outcome, self.outcome_projection_matrix)
+            noise = torch.randn_like(res) * self.noise
+            res = res + noise
         else:
-            base_outcome = self.base_problem.evaluate_true(X)
+            # create and concatenate duplicates of base_outcome
             noise_added = (
                 torch.randn(
                     (
@@ -710,16 +731,17 @@ class AugmentedProblem(MultiObjectiveTestProblem):
         return res
 
 
-def problem_setup_augmented(problem_str, augmented_dims_noise, noisy=False, **tkwargs):
+def problem_setup_augmented(
+    problem_str, 
+    augmented_dims_noise, 
+    noisy=False, 
+    problem_seed = None, 
+    **tkwargs
+):
     """example problem_str:
-    "vehiclesafety_5d3d_kumaraswamyproduct"
-    "dtlz2_8d4d_negl1dist"
-    "osy_6d8d_piecewiselinear"
     "carcabdesign_7d9d_piecewiselinear_20"
-    "vehiclesafety_5d3d_piecewiselinear"
-    "dtlz2_8d4d_piecewiselinear"
-    "osy_6d8d_sigmoidconstraints_20"
-    "carcabdesign_7d9d_linear"
+    "vehiclesafety_5d3d_piecewiselinear_5c"
+    "osy_6d8d_sigmoidconstraints_40"
     """
     problem_name, dims_str, util_type, augmented_str = problem_str.split("_")
     if augmented_str[-1] == "c":
@@ -727,8 +749,9 @@ def problem_setup_augmented(problem_str, augmented_dims_noise, noisy=False, **tk
         augmented_dim = None
         n_duplicates = int(augmented_str[:-1])
     else:
+        # TODO: right now, only allows augmented dim to be multiples of original outcome dim
         duplicate = False
-        augmented_dim = int(augmented_str[:-1])
+        augmented_dim = int(augmented_str)
         n_duplicates = None
 
     Y_bounds = None
@@ -903,6 +926,7 @@ def problem_setup_augmented(problem_str, augmented_dims_noise, noisy=False, **tk
         augmented_dim = augmented_dim,
         duplicate=duplicate,
         n_duplicates=n_duplicates,
+        problem_seed = problem_seed
     )
     if duplicate:
         augmented_dim = augmented_problem.base_outcome_dim * n_duplicates

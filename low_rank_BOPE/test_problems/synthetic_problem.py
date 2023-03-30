@@ -1,4 +1,4 @@
-from typing import List, Tuple, Type
+from typing import List, Optional, Tuple, Type
 
 import numpy as np
 import scipy.linalg
@@ -13,7 +13,7 @@ from torch import Tensor
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
-def generate_principal_axes(output_dim: int, num_axes: int, seed: int = None, **tkwargs) -> torch.Tensor:
+def generate_principal_axes(output_dim: int, num_axes: int, seed: Optional[int] = None, **tkwargs) -> Tensor:
     r"""
     Generate a desired number of orthonormal basis vectors in a space of specified dimension
     which will serve as principal axes for simulation.
@@ -39,7 +39,14 @@ def generate_principal_axes(output_dim: int, num_axes: int, seed: int = None, **
     return torch.tensor(basis, **tkwargs)
 
 
-def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps, **tkwargs):
+def make_controlled_coeffs(
+    full_axes: Tensor, 
+    latent_dim: int, 
+    alpha: float, 
+    n_reps: int, 
+    seed: Optional[int] = None, 
+    **tkwargs
+):
     """
     Create norm-1 vectors with a specified norm in the subspace
     spanned by a specified set of axes.
@@ -60,6 +67,9 @@ def make_controlled_coeffs(full_axes, latent_dim, alpha, n_reps, **tkwargs):
     """
 
     k = full_axes.shape[0]
+    if seed is None:
+        seed=1234
+    torch.manual_seed(seed)
 
     # first generate vectors lying in the latent space with norm alpha
     # z1 is `latent_dim x n_reps`, V1 is `outcome_dim x latent_dim`
@@ -112,13 +122,14 @@ class PCATestProblem(ConstrainedBaseTestProblem):
     def __init__(
         self,
         opt_config: Tuple[List],
-        initial_X: torch.Tensor,
-        bounds: torch.Tensor,
-        true_axes: torch.Tensor,
+        initial_X: Tensor,
+        bounds: Tensor,
+        true_axes: Tensor,
         noise_std: float,
-        PC_lengthscales: torch.Tensor,
-        PC_scaling_factors: torch.Tensor,
+        PC_lengthscales: Tensor,
+        PC_scaling_factors: Tensor,
         simulation_kernel_cls: Type[Kernel] = MaternKernel,
+        add_noise_to_PCs: bool = False,
         jitter: float = 0.000001,
         negate: bool = False,
         **tkwargs,
@@ -141,6 +152,10 @@ class PCATestProblem(ConstrainedBaseTestProblem):
                 projecting to metric space; if None, set to all ones
             simulation_kernel_cls: type of kernel to use for the PCs; default 
                 is MaternKernel()
+            add_noise_to_PCs: if True, add independent noise to simulated PCs 
+                (so that the noise, when projected to the outcome space, becomes 
+                correlated across outcomes); if False, add independent noise 
+                directly to the outcomes. Default is False.
             jitter: small real number to add to the diagonal of the simulated 
                 covariance matrix to prevent non-PSDness
             negate: if True, minimize the objective; if False (default), 
@@ -150,6 +165,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
 
         self._bounds = bounds
         self.input_dim = bounds.shape[0]
+        self.dim = bounds.shape[0]
         super().__init__(noise_std=noise_std, negate=negate)
 
         self.opt_config = opt_config
@@ -157,13 +173,14 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         self.PC_scaling_factors = PC_scaling_factors
         self.tkwargs = tkwargs
         self.outcome_dim = true_axes.shape[-1]
+        self.add_noise_to_PCs = add_noise_to_PCs
 
-        num_axes = true_axes.shape[0]
+        self.latent_dim = true_axes.shape[0]
         num_initial_points = initial_X.shape[0]
 
-        initial_PCs = torch.Tensor().to(**tkwargs)
+        initial_PCs = Tensor().to(**tkwargs)
 
-        for i in range(num_axes):
+        for i in range(self.latent_dim):
             kernel = simulation_kernel_cls()
             kernel.lengthscale = PC_lengthscales[i].item()
 
@@ -192,7 +209,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
 
         self.gen_model_PC = gen_model_PC
 
-    def eval_metrics_true(self, X: torch.Tensor) -> torch.Tensor:
+    def eval_metrics_true(self, X: Tensor) -> Tensor:
         r"""
         Evaluate the metric values without noise.
         """
@@ -208,19 +225,23 @@ class PCATestProblem(ConstrainedBaseTestProblem):
 
         return metric_vals_noiseless
 
-    def eval_metrics_noisy(self, X: torch.Tensor) -> torch.Tensor:
+    def eval_metrics_noisy(self, X: Tensor) -> Tensor:
         r"""
         Evaluate the metric values with noise added.
         """
 
         metric_vals_noiseless = self.eval_metrics_true(X)
-        metric_vals_noisy = metric_vals_noiseless + self.noise_std * torch.randn_like(
-            metric_vals_noiseless
-        )
+
+        if self.add_noise_to_PCs:
+            PC_noise = self.noise_std * torch.randn_like()
+            pass # TODO
+        else:
+            metric_vals_noisy = metric_vals_noiseless + \
+                self.noise_std * torch.randn_like(metric_vals_noiseless)
 
         return metric_vals_noisy
 
-    def evaluate_true(self, X: torch.Tensor) -> torch.Tensor:
+    def evaluate_true(self, X: Tensor) -> Tensor:
         r"""
         Return the true values of the objective metrics.
         """
@@ -231,8 +252,39 @@ class PCATestProblem(ConstrainedBaseTestProblem):
             return metric_vals_noiseless[:, self.opt_config[0][0]]
         else:
             return metric_vals_noiseless[:, self.opt_config[0]]
+    
+    def forward(self, X: Tensor, noise: bool = True) -> Tensor:
+        r"""
+        Evaluate the objective metrics with noise
+        """
+        batch = X.ndimension() > 1
+        X = X if batch else X.unsqueeze(0)
+        f = self.evaluate_true(X=X)
+        latent_vars_shape = list(f.shape)
+        latent_vars_shape[-1] = self.latent_dim # TODO: double check
 
-    def evaluate_slack_true(self, X: torch.Tensor) -> torch.Tensor:
+        if noise and self.noise_std is not None:
+            if self.add_noise_to_PCs:
+                # generate indep noise on PC and project to outcome space
+                noise = torch.matmul(
+                    # torch.randn_like(self.gen_model_PC.posterior(X).mean), 
+                    torch.randn(latent_vars_shape), # TODO: double check shape correct
+                    self.true_axes.to(**self.tkwargs)
+                )
+                if len(self.opt_config[0]) == 1:
+                    noise = noise[..., self.opt_config[0][0]]
+                else:
+                    noise = noise[..., self.opt_config[0]]
+            else:
+                # generate indep noise on outcomes directly
+                noise = torch.randn_like(f)
+            f = f + self.noise_std * noise
+        if self.negate:
+            f = -f
+        return f if batch else f.squeeze(0)
+
+
+    def evaluate_slack_true(self, X: Tensor) -> Tensor:
         r"""
         Return the values of the constraint metrics.
         """
@@ -240,6 +292,37 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         metric_vals_noiselss = self.eval_metrics_true(X)
 
         return metric_vals_noiselss[:, self.opt_config[1]]
+    
+    def evaluate_slack(self, X: Tensor, noise: bool = True) -> Tensor:
+        r"""
+        Evaluate constraint slack with noise.
+        """
+        # NOTE: we don't actually use it because we usually set constraints to 
+        # be empty, but putting correlated noise case here for completeness
+
+        cons = self.evaluate_slack_true(X=X)
+        latent_vars_shape = list(cons.shape)
+        latent_vars_shape[-1] = self.latent_dim # TODO: double check
+
+        if noise and self.noise_std is not None:
+            if self.add_noise_to_PCs:
+                # generate indep noise on PC and project to outcome space
+                noise = torch.matmul(
+                    # torch.randn_like(self.gen_model_PC.posterior(X).mean), 
+                    torch.randn(latent_vars_shape), # TODO: double check shape correct
+                    self.true_axes.to(**self.tkwargs)
+                )
+                if len(self.opt_config[1]) == 1:
+                    noise = noise[..., self.opt_config[1][0]]
+                else:
+                    noise = noise[..., self.opt_config[1]]                
+            else:
+                # generate indep noise on outcomes directly
+                noise = torch.randn_like(cons)
+            cons = cons + self.noise_std * noise
+
+        return cons
+
 
 
 def make_problem(**kwargs):
@@ -254,20 +337,20 @@ def make_problem(**kwargs):
         "PC_noise_level": 0,
         "noise_std": 0.1,
         "num_initial_samples": 20,
-        "true_axes": torch.Tensor([1]*20),
+        "true_axes": Tensor([1]*20),
         "PC_lengthscales": [0.1],
         "PC_scaling_factors": [2],
         "dtype": torch.double,
-        "np_seed": 1234,
-        "torch_seed": 1234
+        "problem_seed": 1234,
     }
 
     # overwrite config settings with kwargs
     for key, val in kwargs.items():
-        config[key] = val
+        if val is not None:
+            config[key] = val
 
-    np.random.seed(config["np_seed"])
-    torch.manual_seed(config["torch_seed"])
+    np.random.seed(config["problem_seed"])
+    torch.manual_seed(config["problem_seed"])
     torch.autograd.set_detect_anomaly(True)
 
     initial_X = torch.randn(
@@ -282,7 +365,7 @@ def make_problem(**kwargs):
     problem = PCATestProblem(
         opt_config=(obj_indices, cons_indices),
         initial_X=initial_X,
-        bounds=torch.Tensor([[0, 1]] * config["input_dim"]),
+        bounds=Tensor([[0, 1]] * config["input_dim"]),
         true_axes=config['true_axes'],
         noise_std=config["noise_std"],
         PC_lengthscales=Tensor(config["PC_lengthscales"]),
@@ -300,7 +383,7 @@ class LinearUtil(torch.nn.Module):
     Create linear utility function modulew with specified coefficient beta.
     f(y) = beta_1 * y_1 + ... + beta_k * y_k
     """
-    def __init__(self, beta: torch.Tensor):
+    def __init__(self, beta: Tensor):
         """
         Args:
             beta: size `output_dim` tensor
@@ -319,7 +402,7 @@ class SumOfSquaresUtil(torch.nn.Module):
     Create sum of squares utility function modulew with specified coefficient beta.
     f(y) = beta_1 * y_1^2 + ... + beta_k * y_k^2
     """
-    def __init__(self, beta: torch.Tensor):
+    def __init__(self, beta: Tensor):
         """
         Args:
             beta: size `output_dim` tensor

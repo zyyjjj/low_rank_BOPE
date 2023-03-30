@@ -3,19 +3,20 @@ This is a surrogate of the portfolio simulator, based on 3k samples found in por
 credit to https://github.com/saitcakmak/BoRisk/blob/master/BoRisk/test_functions/portfolio_surrogate.py 
 """
 import math
+import os
 from typing import Optional
-import torch
+
 import gpytorch
+import torch
 from botorch import fit_gpytorch_model
 from botorch.models import SingleTaskGP
 from botorch.models.transforms import Standardize
+from botorch.test_functions.synthetic import SyntheticTestFunction
 from gpytorch import ExactMarginalLogLikelihood
 from gpytorch.constraints import GreaterThan
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.priors import GammaPrior
 from torch import Tensor
-from botorch.test_functions.synthetic import SyntheticTestFunction
-import os
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,13 +58,16 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     def __init__(
         self,
         noise_std: Optional[float] = None,
-        negate: bool = False,
+        negate: bool = True,
+        n_w_samples = 50,
         w_distribution: str = "uniform",
+        w_bounds: Tensor = torch.tensor([[0, 0], [1, 1]])
     ) -> None:
         super().__init__(noise_std=noise_std, negate=negate)
         self.model = None
-        self.w_samples = w_samples_dict[w_distribution]
-        self.outcome_dim = self.w_samples.shape[0]
+        # self.w_samples = w_samples_dict[w_distribution]
+        self.w_samples = generate_w_samples(bounds=w_bounds, n=n_w_samples, distribution=w_distribution)
+        self.outcome_dim = n_w_samples
         print('self.w_samples.shape', self.w_samples.shape)
 
     def evaluate_true_one_design(self, x: Tensor) -> Tensor:

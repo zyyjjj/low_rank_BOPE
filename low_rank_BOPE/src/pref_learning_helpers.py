@@ -11,6 +11,8 @@ sys.path.append(['..', '../..', '../../..'])
 
 from typing import Dict, Optional, Tuple
 
+import numpy as np
+import scipy
 import torch
 from botorch import fit_gpytorch_mll
 from botorch.acquisition import LearnedObjective
@@ -30,9 +32,10 @@ from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.sampling import draw_sobol_samples
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from torch import Tensor
+
 from low_rank_BOPE.src.models import make_modified_kernel
 from low_rank_BOPE.src.transforms import InputCenter, PCAInputTransform
-from torch import Tensor
 
 # ======= Initial data generation =======
 
@@ -391,7 +394,9 @@ class ModifiedFixedSingleSampleModel(DeterministicModel):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         post = self.model.posterior(X)
 
-        return post.mean + post.variance.sqrt() * self.w.to(X)
+        # return post.mean + post.variance.sqrt() * self.w.to(X)
+        # adding jitter to avoid numerical issues
+        return post.mean + torch.sqrt(post.variance + 1e-8) * self.w.to(X)
 
 
 def run_pref_learn(
@@ -579,3 +584,90 @@ def inject_comp_error(comp, util_diff, comp_noise_type, comp_noise):
         if to_flip:
             flipped_comp[[0, 1]] = flipped_comp[[1, 0]]
     return flipped_comp
+
+
+def find_true_optimal_utility(
+    problem: torch.nn.Module, 
+    util_func: torch.nn.Module, 
+    n: int,
+    maximize: bool = True
+):
+    r"""
+    Find the optimal utility value, i.e., max_x (util_func(problem(x))) across
+    the domain through taking a large number of samples.
+    Args:
+        problem: a TestProblem that maps designs to outcomes
+        util_func: maps outcomes to scalar utility
+        n: number of evalutions
+        maximize: boolean for whether to maximize (if False, minimize)
+    """
+
+    meta_batch_size = 20000 // problem.dim
+    num_meta_batches = n // meta_batch_size + 1
+    best_util_vals = []
+
+    for _ in range(num_meta_batches):
+        _, _, util_vals, _ = gen_initial_real_data(
+            n=meta_batch_size,
+            problem=problem,
+            util_func=util_func,
+            comp_noise=0,
+            batch_eval=True
+        )
+        if maximize:
+            best_util_vals.append(torch.max(util_vals).item())
+        else:
+            best_util_vals.append(torch.min(util_vals).item())
+    
+    if maximize:
+        return np.max(best_util_vals)
+    else:
+        return np.min(best_util_vals)
+
+
+# TODO: fix this later, using scipy but not optimizing at all
+# def find_true_optimal_utility_scipy(
+#     problem: torch.nn.Module, 
+#     util_func: torch.nn.Module, 
+#     maximize: bool = True
+# ):
+#     r"""
+#     Find the true optimal utility value, i.e., max_x (util_func(problem(x)))
+#     Args:
+#         problem: a TestProblem that maps designs to outcomes
+#         util_func: maps outcomes to scalar utility
+#         maximize: boolean for whether to maximize (if False, minimize)
+#     """
+
+#     print("problem._bounds: ", problem._bounds)
+#     if problem._bounds.shape[0] == 2:
+#         bounds = list(map(tuple, torch.transpose(problem._bounds, -2, -1).numpy()))
+#         x0 = np.array(problem._bounds.to(torch.double).mean(dim = 0))
+#     else:
+#         bounds = list(map(tuple, problem._bounds.numpy()))
+#         x0 = np.array(problem._bounds.to(torch.double).mean(dim = 1))
+    
+#     print('x0: ', x0)
+#     print("bounds: ", bounds)
+
+#     # define function to be minimized using scipy.optimize.minimize
+#     def util_of_design(x):
+#         # x is a 1d array with shape (d, )
+#         # convert it to tensor and compute its utility
+#         x_tensor = torch.Tensor(x).unsqueeze(0)
+#         outcomes = problem.evaluate_true(x_tensor)
+#         util = util_func(outcomes)
+#         if maximize:
+#             util *= -1
+    
+#         return util.item()
+    
+#     res = scipy.optimize.minimize(util_of_design, x0, bounds = bounds, options = {'eps': 1e-3})
+#     print(res)
+
+#     if res.success:
+#         print('best design: ', res.x, 'best utility: ', res.fun)
+#         return [res.x, res.fun]
+#     else:
+#         print('Failed to find the true optimal utility value')
+#         return None

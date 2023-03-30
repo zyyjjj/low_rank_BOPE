@@ -7,52 +7,45 @@ sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
 
 import torch
-from botorch import fit_gpytorch_mll
-from botorch.models import SingleTaskGP
-from botorch.models.transforms.outcome import (ChainedOutcomeTransform,
-                                               Standardize)
-from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.mlls import ExactMarginalLogLikelihood
-from gpytorch.priors import GammaPrior
+import yaml
+
 from low_rank_BOPE.bope_class import BopeExperiment
-from low_rank_BOPE.src.pref_learning_helpers import gen_initial_real_data
 from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, generate_principal_axes, make_controlled_coeffs, make_problem)
 
-experiment_configs = {
-    "rank_1_linear": [2],
-    "rank_2_linear": [2,1],
-    "rank_4_linear": [4,2,2,1],
-    # "rank_6_linear": [8,4,4,2,2,1],
-    # "rank_8_linear": [16,8,8,4,4,2,2,1],
-    # TODO later: add nonlinear utility functions
-}
 
-
-
-def run_pipeline(config_name, trial_idx, outcome_dim = 20, input_dim = 1):
+def run_pipeline(
+    experiment_configs, config_name, trial_idx, outcome_dim, input_dim, noise_std, 
+    methods = ["st", "pca", "pcr", "true_proj"],
+    pe_strategies = ["EUBO-zeta", "Random-f"],
+    alphas = [0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    problem_seed = None,
+    **kwargs):
 
     _, rank, util_type = config_name.split('_')
     rank = int(rank)
     print('rank', rank)
 
-    torch.manual_seed(trial_idx)
+    # torch.manual_seed(trial_idx)
 
     full_axes = generate_principal_axes(
         output_dim=outcome_dim,
         num_axes=outcome_dim,
-        seed = trial_idx,
-        dtype=torch.double
+        dtype=torch.double,
+        seed=problem_seed
     )
 
-    for alpha in [0, 0.2, 0.4, 0.6, 0.8, 1.0]:
+    for alpha in alphas: 
+
+        print(f"=============== Running alpha={alpha} ===============")
 
         beta = make_controlled_coeffs(
             full_axes=full_axes,
             latent_dim=rank,
             alpha=alpha,
             n_reps = 1,
-            dtype=torch.double
+            dtype=torch.double,
+            seed = problem_seed
         ).transpose(-2, -1)
         print('beta shape', beta.shape)
 
@@ -64,44 +57,55 @@ def run_pipeline(config_name, trial_idx, outcome_dim = 20, input_dim = 1):
         problem = make_problem(
             input_dim = input_dim, 
             outcome_dim = outcome_dim,
+            noise_std = noise_std,
             num_initial_samples = input_dim*outcome_dim,
             true_axes = true_axes,
             PC_lengthscales = [0.5]*rank,
-            PC_scaling_factors = experiment_configs[config_name]
+            PC_scaling_factors = experiment_configs[config_name],
+            problem_seed = problem_seed
         )
+
+        output_path = "/home/yz685/low_rank_BOPE/experiments/synthetic/" + \
+            f"{config_name}_{input_dim}_{outcome_dim}_{alpha}_{noise_std}/"
+
+        print("methods to plug into BopeExperiment: ", methods)
 
         experiment = BopeExperiment(
             problem, 
             util_func, 
-            methods = ["st", "pca", "pcr", "true_proj"],
-            pe_strategies = [
-                "EUBO-zeta", 
-                "Random-f"
-            ],
+            methods = methods,
+            pe_strategies = pe_strategies,
             trial_idx = trial_idx,
-            output_path = "/home/yz685/low_rank_BOPE/experiments/"+config_name+"/"
+            output_path = output_path,
+            **kwargs
         )
         experiment.run_BOPE_loop()
 
 
 if __name__ == "__main__":
 
-    # experiment-running params -- read from command line input
+    # read trial_idx from command line input
     trial_idx = int(sys.argv[1])
+    # read experiment config from yaml file
+    args = yaml.load(open(sys.argv[2]), Loader = yaml.FullLoader)
 
-    for config_name in experiment_configs:
+    print("Experiment args: ", args)
+
+    for config_name in args["experiment_configs"]:
+        print(f"================ Running {config_name} ================")
         run_pipeline(
+            experiment_configs = args["experiment_configs"],
             config_name = config_name,
             trial_idx = trial_idx,
-            outcome_dim = 20,
-            input_dim = 1
+            outcome_dim = args["outcome_dim"],
+            input_dim = args["input_dim"],
+            noise_std = args["noise_std"],
+            n_check_post_mean = args["n_check_post_mean"], 
+            methods = args["methods"],
+            pe_strategies = args["pe_strategies"],
+            alphas=args["alphas"],
+            pca_var_threshold = args["pca_var_threshold"],
+            initial_experimentation_batch = args["init_exp_batch"],
+            problem_seed = args["problem_seed"] 
+            # prblem_seed should be set the same for all trials in one problem instance
         )
-
-    # TODO: can I replace absolute path with script directory, like
-    # script_dir = os.path.dirname(os.path.abspath(__file__))
-    # what's the difference between this and 
-    # file_dir = os.path.dirname(__file__) ??
-    # if output_path is None:
-        # output_path = os.path.join(
-        #     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exp_output"
-        # )

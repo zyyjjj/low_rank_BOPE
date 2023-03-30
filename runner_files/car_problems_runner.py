@@ -1,48 +1,43 @@
-import os, sys
+import os
+import sys
+
 file_dir = os.path.dirname(__file__)
 sys.path.append(file_dir)
 sys.path.append('/home/yz685/low_rank_BOPE')
 sys.path.append(['..', '../..', '../../..'])
+
+import yaml
+
 from low_rank_BOPE.bope_class import BopeExperiment
 from low_rank_BOPE.test_problems.car_problems import problem_setup_augmented
 
-
 if __name__ == "__main__":
 
-    # experiment-running params -- read from command line input
+    # read trial_idx from command line input
     trial_idx = int(sys.argv[1])
+    # read experiment config from yaml file
+    args = yaml.load(open(sys.argv[2]), Loader = yaml.FullLoader)
 
-    problem_setup_names = [
-        "vehiclesafety_5d3d_piecewiselinear_3c",
-        "carcabdesign_7d9d_piecewiselinear_3c",
-        "carcabdesign_7d9d_linear_3c",
-    ]
+    print("Experiment args: ", args)
 
-    for problem_setup_name in problem_setup_names:
+    for problem_setup_name in args["problem_setup_names"]:
 
         input_dim, outcome_dim, problem, _, util_func, _, _ = problem_setup_augmented(
-            problem_setup_name, augmented_dims_noise=0.01
-            # TODO: maybe need seed
+            problem_setup_name, augmented_dims_noise=args["noise_std"], noisy=True,
+            problem_seed = args["problem_seed"]
         )
+
+        output_path = f"/home/yz685/low_rank_BOPE/experiments/cars/{problem_setup_name}_"\
+                        + str(args["noise_std"])+"/"
 
         experiment = BopeExperiment(
             problem, 
             util_func, 
-            methods = ["st", "pca", "pcr"],
-            pe_strategies = [
-                "EUBO-zeta", 
-                "Random-f"
-            ],
+            methods = args["methods"],
+            pe_strategies = args["pe_strategies"],
             trial_idx = trial_idx,
-            output_path = "/home/yz685/low_rank_BOPE/experiments/"+problem_setup_name+"/"
+            n_check_post_mean = args["n_check_post_mean"],
+            output_path = output_path,
+            pca_var_threshold = args["pca_var_threshold"]
         )
         experiment.run_BOPE_loop()
-
-    # TODO: can I replace absolute path with script directory, like
-    # script_dir = os.path.dirname(os.path.abspath(__file__))
-    # what's the difference between this and 
-    # file_dir = os.path.dirname(__file__) ??
-    # if output_path is None:
-        # output_path = os.path.join(
-        #     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exp_output"
-        # )

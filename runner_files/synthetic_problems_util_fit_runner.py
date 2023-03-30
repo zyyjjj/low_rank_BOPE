@@ -17,6 +17,7 @@ from botorch.models.transforms.outcome import (ChainedOutcomeTransform,
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import GammaPrior
+
 from low_rank_BOPE.src.diagnostics import check_util_model_fit_wrapper
 from low_rank_BOPE.src.pref_learning_helpers import (fit_util_models_wrapper,
                                                      gen_initial_real_data)
@@ -34,11 +35,12 @@ experiment_configs = {
 }
 
 
-def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
+def run_pipeline(config_name, seed, noise_std, outcome_dim = 20, input_dim = 5):
     """
     Args:
         config_name: string specifying the outcome rank and utility type
         seed: integer for the random seed
+        noise_std: magnitude of independent noise to add to outcome dimensions
         outcome_dim: dimensionality of the outcome
         input_dim: dimensionality of the input
     Returns:
@@ -83,7 +85,7 @@ def run_pipeline(config_name, seed, outcome_dim = 20, input_dim = 5):
         problem = make_problem(
             input_dim = input_dim, 
             outcome_dim = outcome_dim,
-            noise_std = 0.5, 
+            noise_std = noise_std, 
             num_initial_samples = input_dim*outcome_dim,
             true_axes = true_axes,
             PC_lengthscales = [0.5]*rank,
@@ -181,8 +183,9 @@ if __name__ == "__main__":
     trial_idx = int(sys.argv[1])
     input_dim = int(sys.argv[2])
     outcome_dim = int(sys.argv[3])
+    noise_std = float(sys.argv[4])
 
-    output_path = f"/home/yz685/low_rank_BOPE/experiments/util_fit_{input_dim}_{outcome_dim}/"
+    output_path = f"/home/yz685/low_rank_BOPE/experiments/util_fit_{input_dim}_{outcome_dim}_{noise_std}/"
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
@@ -190,6 +193,7 @@ if __name__ == "__main__":
 
         pca_acc_dict_alphas, st_acc_dict_alphas = run_pipeline(
             config_name=config_name, seed=trial_idx, 
+            noise_std = noise_std,
             outcome_dim = outcome_dim, input_dim = input_dim
         ) 
 
