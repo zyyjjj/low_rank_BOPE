@@ -728,9 +728,11 @@ def fit_pca(
         assert (weights >= 0).all(), \
             "weights must be nonnegative"
             
-        weighted_mean = (train_Y * weights).sum(dim=0) / weights.sum(0)
-        train_Y_centered = weights * (train_Y - weighted_mean)
-    
+        # remove the entries with weight=0 # TODO: check this
+        valid = torch.nonzero(weights.squeeze(1)).squeeze(1)
+        weighted_mean = (train_Y[valid] * weights[valid]).sum(dim=0) / weights[valid].sum(0)
+        train_Y_centered = weights[valid] * (train_Y[valid] - weighted_mean)
+
     else:
         # unweighted pca
         train_Y_centered = train_Y - train_Y.mean(dim=0)
