@@ -653,7 +653,7 @@ def get_latent_ineq_constraints(projection: Tensor, original_bounds: Tensor):
     return latent_cons
     
 
-def compute_weights(util_vals: Tensor, weights_type: str = "rank", **kwargs):
+def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs):
 
     r""" 
     Compute weights for each datapoint, later used in weighted PCA.
@@ -663,7 +663,8 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank", **kwargs):
         util_vals: shape `(num_samples,)` tensor of sample utility values;
             (can be true utility values, or predicted posterior mean from a surrogate model)
         weights_type: specifies the type of weights
-            "rank": rank weighting in Tripp et al. 2020
+            "rank_cts": rank weighting in Tripp et al. 2020
+            "rank_bin": assign weight 0 to bottom points
             "power": 
         kwargs: settings for specific weight types
 
@@ -671,13 +672,25 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank", **kwargs):
         weights: `num_samples x 1` tensor of weights for each data point
     """
 
-    if weights_type == "rank":
+    if weights_type == "rank_cts":
         # follows Tripp et al. paper
         k = kwargs.get("k", 10) # TODO: come back to setting k more carefully
         utils_argsort = np.argsort(-np.asarray(util_vals))
         ranks = np.argsort(utils_argsort)
         weights = 1 / (k * len(util_vals) + ranks) # TODO: should we normalize?
 
+    elif weights_type == "rank_bin":
+        # throw away the bottom x number of points
+        # default value is 2 because we usually add a pair of points from EUBO
+        bottom_num_points = kwargs.get("bottom_num_points", 2)
+
+        
+        # set weights for the selected indices to 1, others to 0
+        ranks = torch.argsort(torch.argsort(util_vals))
+        indices = torch.where(ranks >= bottom_num_points)
+        weights = torch.zeros((len(util_vals), 1))
+        weights[indices] = 1
+        
     # elif weights_type == "power":
     #     power = kwargs.get("power", 0)
 
@@ -688,7 +701,12 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank", **kwargs):
 
 
 
-def fit_pca(train_Y: Tensor, var_threshold: float=0.9, weights: Optional[Tensor] = None):
+def fit_pca(
+    train_Y: Tensor, 
+    var_threshold: float=0.9, 
+    weights: Optional[Tensor] = None,
+    standardize: Optional[bool] = True
+):
 
     r"""
     Perform PCA on supplied data with optional weights.
@@ -697,17 +715,26 @@ def fit_pca(train_Y: Tensor, var_threshold: float=0.9, weights: Optional[Tensor]
         train_Y: `num_samples x outcome_dim` tensor of data
         var_threshold: threshold of variance explained
         weights: `num_samples x 1` tensor of weights to add on each data point
+        standardize: whether to standardize train_Y before computing PCA
     Returns:
         pca_axes: `latent_dim x outcome_dim` tensor where each row is a pca axis
     """
 
     # TODO: maybe add optional arg num_axes
 
+
     # unweighted pca
     if weights is None:
-        U, S, V = torch.svd(train_Y - train_Y.mean(dim=0))
+        if standardize:
+            # standardize
+            # TODO: check correctness
+            U, S, V = torch.svd((train_Y - train_Y.mean(dim=0))/train_Y.std(dim=0))
+        else:
+            # don't standardize, just center
+            U, S, V = torch.svd(train_Y - train_Y.mean(dim=0))
 
     # weighted pca
+    # TODO: how does weighting interact with standardization?
     else:
         assert weights.shape[0] == train_Y.shape[0], \
             f"weights shape {weights.shape} does not match train_Y shape {train_Y.shape}, "
@@ -722,7 +749,7 @@ def fit_pca(train_Y: Tensor, var_threshold: float=0.9, weights: Optional[Tensor]
     explained_variance = S_squared / S_squared.sum()
 
     exceed_thres = (
-        np.cumsum(explained_variance) > var_threshold
+        np.cumsum(explained_variance.detach().numpy()) > var_threshold
     )
     num_axes = len(exceed_thres) - sum(exceed_thres) + 1
 
