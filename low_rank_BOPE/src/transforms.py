@@ -683,7 +683,6 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs)
         # throw away the bottom x number of points
         # default value is 2 because we usually add a pair of points from EUBO
         bottom_num_points = kwargs.get("bottom_num_points", 2)
-
         
         # set weights for the selected indices to 1, others to 0
         ranks = torch.argsort(torch.argsort(util_vals))
@@ -722,29 +721,27 @@ def fit_pca(
 
     # TODO: maybe add optional arg num_axes
 
-
-    # unweighted pca
-    if weights is None:
-        if standardize:
-            # standardize
-            # TODO: check correctness
-            U, S, V = torch.svd((train_Y - train_Y.mean(dim=0))/train_Y.std(dim=0))
-        else:
-            # don't standardize, just center
-            U, S, V = torch.svd(train_Y - train_Y.mean(dim=0))
-
-    # weighted pca
-    # TODO: how does weighting interact with standardization?
-    else:
+    if weights is not None:
+        # weighted pca
         assert weights.shape[0] == train_Y.shape[0], \
             f"weights shape {weights.shape} does not match train_Y shape {train_Y.shape}, "
         assert (weights >= 0).all(), \
             "weights must be nonnegative"
             
         weighted_mean = (train_Y * weights).sum(dim=0) / weights.sum(0)
-        train_Y_centered = train_Y - weighted_mean
-        U, S, V = torch.svd(weights * train_Y_centered)
+        train_Y_centered = weights * (train_Y - weighted_mean)
+    
+    else:
+        # unweighted pca
+        train_Y_centered = train_Y - train_Y.mean(dim=0)
 
+    if standardize:
+        # standardize
+        U, S, V = torch.svd(train_Y_centered/train_Y_centered.std(dim=0))
+    else:
+        # don't standardize, just center
+        U, S, V = torch.svd(train_Y_centered)
+        
     S_squared = torch.square(S)
     explained_variance = S_squared / S_squared.sum()
 
