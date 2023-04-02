@@ -1,14 +1,16 @@
-import sys
 import copy
+import sys
+from typing import List, Optional, Tuple
+
 import gpytorch
 import torch
+from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 from botorch.models.model import Model
+from botorch.utils.sampling import draw_sobol_samples
+from torch import Tensor
+
 from low_rank_BOPE.src.pref_learning_helpers import (gen_initial_real_data,
                                                      generate_random_inputs)
-from torch import Tensor
-from typing import Optional, List, Tuple
-from botorch.utils.sampling import draw_sobol_samples
-from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 
 sys.path.append('..')
 
@@ -287,16 +289,20 @@ def check_outcome_model_fit(
     else:
         test_Y = problem.evaluate_true(test_X).detach()
 
+    test_Y_mean = test_Y.mean(axis=0)
+
     # run outcome model posterior prediction on test data
     test_posterior_mean = outcome_model.posterior(test_X).mean
 
-    # compute relative mean squared error
-    mse = ((test_posterior_mean - test_Y)**2 / test_Y**2).mean(axis=0).detach().sum().item()
+    # Deprecated: relative SE/MSE taking average of fractions
+    # mse = ((test_posterior_mean - test_Y)**2 / test_Y**2).mean(axis=0).detach().sum().item()
+    # se_rel = torch.sum((test_posterior_mean-test_Y) ** 2, dim=1) / torch.sum((test_Y-test_Y_mean)**2, dim=1)
+    # mse_rel = se_rel.mean(axis=0).item()
 
-    se_rel = torch.sum((test_posterior_mean - test_Y) ** 2, dim=1) / torch.sum(test_Y**2, dim=1)
-    mse_rel = se_rel.mean(axis=0).item()
+    # think of this as a generalized (1-R_squared) for vector valued outputs
+    err = torch.sum((test_posterior_mean-test_Y) ** 2) / torch.sum((test_Y-test_Y_mean)**2)
 
-    return mse_rel
+    return err
 
 
 def check_util_model_fit(
