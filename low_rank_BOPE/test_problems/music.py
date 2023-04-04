@@ -1,8 +1,9 @@
 from typing import Optional
+
 import numpy as np
 import torch
-from torch import Tensor
 from botorch.test_functions import SyntheticTestFunction
+from torch import Tensor
 
 # code credit to
 # https://github.com/katieshiqihe/music_in_python
@@ -47,7 +48,7 @@ class HarmonyOneKey(SyntheticTestFunction):
     dim = 1
     _bounds = torch.tensor([[0., 1.]]) # press two keys together
 
-    def __init__(self, base_key = 51, duration = 0.01): # key 51 = C5
+    def __init__(self, base_key = 51, duration = 0.01): # key 52 = C5
         super().__init__()
         # self.outcome_bounds has to do with amplitude
         self.note_freqs = [2**((n+1-49)/12)*440 for n in range(88)]
@@ -105,4 +106,25 @@ class Consonance(torch.nn.Module):
         # NOTE: this is mapping from signal to utility, not from frequency to utility! 
         # how about doing a fourier decompsition here and design some function in the frequency domain
 
+        """
+        new idea from peter: compute similarity with known pleasant spectra
 
+        concretely: get the signal vectors of all combinations, do FFT (get base spectra), 
+        compute pleasantness based on Plompt and Levelt (to doublecheck)
+        store it in a dictionary (?) mapping spectrum to pleasantness value
+        
+        then, given a new sound wave, the utility is computed as follows
+        - first do FFT on the sound wave;
+        - then compute the distance of the spectrum with the 12 (?) other spectra 
+          (Euclidean? cosine similarity? probably need a normalizatio step?)
+        - option 1: get the closest base spectrum, assign its pleasantness as the util value
+        - option 2: compute the distance to all base spectra, 
+          take a weighted average of their pleasantness values (weights = 1/distance or something)
+        
+        """
+
+
+
+
+
+        
