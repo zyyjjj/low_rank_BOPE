@@ -49,10 +49,6 @@ from low_rank_BOPE.src.transforms import (LinearProjectionInputTransform,
 def defaultdict_list():
     return defaultdict(list)
 
-
-# TODO: maybe an important diagnostic is the best util value in the subspace
-# this is a subspace quality indicator
-
 class RetrainingBopeExperiment:
 
     attr_list = {
@@ -365,10 +361,7 @@ class RetrainingBopeExperiment:
 
 
     def fit_util_model(
-        self, # TODO: make it take in (method, pe_strategy) as args
-        # Y,
-        # comps,
-        # **model_kwargs
+        self, 
         method,
         pe_strategy
     ):
@@ -417,10 +410,6 @@ class RetrainingBopeExperiment:
                 try:
                     util_model = self.fit_util_model(
                         method, pe_strategy
-                        # train_Y,
-                        # train_comps,
-                        # input_transform=self.transforms_covar_dict[(method, pe_strategy)]["input_tf"], # TODO: add standardize here or in tc_dict
-                        # covar_module=self.transforms_covar_dict[(method, pe_strategy)]["covar_module"],
                     )
                     # TODO: commented out to accelerate things
                     # util_model_acc = check_util_model_fit(
@@ -476,7 +465,6 @@ class RetrainingBopeExperiment:
                             f"optimize_acqf() failed 3 times for EUBO with {method},", 
                             "stop current call of run_pref_learn()"
                         )
-                        # return train_Y, train_comps, None, acqf_vals
                         return
 
             elif pe_strategy == "Random-f":
@@ -524,10 +512,6 @@ class RetrainingBopeExperiment:
         # so the amount of duplicated effort is not large 
         util_model = self.fit_util_model(
             method, pe_strategy
-            # Y=train_Y,
-            # comps=train_comps,
-            # input_transform=self.transforms_covar_dict[(method, pe_strategy)]["input_tf"], # TODO: add standardize here or in tc_dict
-            # covar_module=self.transforms_covar_dict[(method, pe_strategy)]["covar_module"]
         )
         sampler = SobolQMCNormalSampler(num_pref_samples)
         pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
@@ -583,10 +567,6 @@ class RetrainingBopeExperiment:
 
         util_model = self.fit_util_model(
             method, pe_strategy
-            # Y=train_Y,
-            # comps=train_comps,
-            # input_transform=self.transforms_covar_dict[(method, pe_strategy)]["input_tf"],
-            # covar_module=self.transforms_covar_dict[(method, pe_strategy)]["covar_module"]
         )
         # log accuracy of final utility model
         util_model_acc = check_util_model_fit(
