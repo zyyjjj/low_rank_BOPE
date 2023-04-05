@@ -113,7 +113,7 @@ class RetrainingBopeExperiment:
         for key in kwargs.keys():
             setattr(self, key, kwargs[key])
         
-        print("BopeExperiment settings: ", self.__dict__)
+        print("RetrainingBopeExperiment settings: ", self.__dict__)
 
         # pre-specified experiment metadata
         self.problem = problem.double()
@@ -204,6 +204,14 @@ class RetrainingBopeExperiment:
 
     def compute_projections(self, method, pe_strategy):
 
+        # TODO: do some selection of the data I train the subspace on
+        # probably need `retrain_strategy`, only one at a time; decoupled from `method` and `pe_strategy`
+        # implementation-wise: have a list of indices of entries in Y to include? for each (method, pe_strategy), and continually updated
+        # Option 1: "eubo_better", just add the better EUBO candidate -- index specified in run_pref_learning()
+        # Option 2: "post_mean", select based on posterior mean utility -- index specified here; also need to decide how many points to keep / discard
+        # Option 3: "all", use all Y gathered so far
+        # the ones based on true util values are not practical as we don't have that info in practice
+
         projection = None
         Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
 
@@ -211,7 +219,7 @@ class RetrainingBopeExperiment:
             # could be "uwpca" or "uwpca_rt"
 
             projection = fit_pca(
-                Y, 
+                Y, # TODO: doesn't have to be Y
                 var_threshold=self.pca_var_threshold, 
                 weights=None,
                 standardize=self.standardize
@@ -449,7 +457,7 @@ class RetrainingBopeExperiment:
                                 raw_samples=self.raw_samples,  # used for intialization heuristic
                                 options={"batch_limit": 4, "seed": self.trial_idx},
                             )
-                            cand_Y = one_sample_outcome_model(cand_X)
+                            cand_Y = one_sample_outcome_model(cand_X) 
                             acqf_vals.append(acqf_val.item())
 
                             found_valid_candidate = True
@@ -490,6 +498,7 @@ class RetrainingBopeExperiment:
             train_Y = torch.cat((train_Y, cand_Y))
             train_util_vals = torch.cat((train_util_vals, cand_util_val))
             print('train_Y, train_comps shape: ', train_Y.shape, train_comps.shape)
+            # TODO: save the index of the better between cand_Y to update the subspace with
 
             self.pref_data_dict[(method, pe_strategy)] = {
                 "Y": train_Y,
