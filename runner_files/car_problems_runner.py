@@ -9,6 +9,7 @@ sys.path.append(['..', '../..', '../../..'])
 import yaml
 
 from low_rank_BOPE.bope_class import BopeExperiment
+from low_rank_BOPE.bope_class_retraining import RetrainingBopeExperiment
 from low_rank_BOPE.test_problems.car_problems import problem_setup_augmented
 
 if __name__ == "__main__":
@@ -18,6 +19,7 @@ if __name__ == "__main__":
     # read experiment config from yaml file
     args = yaml.load(open(sys.argv[2]), Loader = yaml.FullLoader)
 
+    print("Trial: ", trial_idx)
     print("Experiment args: ", args)
 
     for problem_setup_name in args["problem_setup_names"]:
@@ -27,17 +29,27 @@ if __name__ == "__main__":
             problem_seed = args["problem_seed"]
         )
 
-        output_path = f"/home/yz685/low_rank_BOPE/experiments/cars/{problem_setup_name}_"\
-                        + str(args["noise_std"])+"/"
+        retrain = args.get("retrain", False)
 
-        experiment = BopeExperiment(
+        if retrain:
+            experiment_class = RetrainingBopeExperiment
+            suffix = "_rt"
+        else:
+            experiment_class = BopeExperiment
+            suffix = ""
+
+        output_path = f"/home/yz685/low_rank_BOPE/experiments/cars/{problem_setup_name}_"\
+                        + str(args["noise_std"]) + suffix + "/"
+
+        experiment = experiment_class(
             problem, 
             util_func, 
             methods = args["methods"],
             pe_strategies = args["pe_strategies"],
             trial_idx = trial_idx,
-            n_check_post_mean = args["n_check_post_mean"],
+            # n_check_post_mean = args["n_check_post_mean"],
             output_path = output_path,
-            pca_var_threshold = args["pca_var_threshold"]
+            # pca_var_threshold = args["pca_var_threshold"]
+            **args # TODO: double check this works 
         )
         experiment.run_BOPE_loop()

@@ -10,23 +10,31 @@ import torch
 import yaml
 
 from low_rank_BOPE.bope_class import BopeExperiment
-from low_rank_BOPE.test_problems.shapes import (AreaUtil,
+from low_rank_BOPE.bope_class_retraining import RetrainingBopeExperiment
+from low_rank_BOPE.test_problems.shapes import (AreaUtil, Bars,
                                                 GradientAwareAreaUtil, Image,
                                                 LargestRectangleUtil)
 
 
 def run_pipeline(
     trial_idx, n_pixels, 
+    outcome_func_name,
     util_func_name,
+    retrain,
     methods = ["st", "pca", "pcr"],
     pe_strategies = ["EUBO-zeta", "Random-f"],
     **kwargs):
 
     torch.manual_seed(trial_idx)
+    kwargs.update({"standardize": False}) # don't standardize for shapes due to numerical issues
 
-    problem = Image(num_pixels=n_pixels)
+    if outcome_func_name == "rectangle":
+        problem = Image(num_pixels=n_pixels)
+    elif outcome_func_name == "bars":
+        problem = Bars(num_pixels=n_pixels)
+
     if util_func_name == "area":   
-        util_func = AreaUtil(binarize=binarize)
+        util_func = AreaUtil(binarize=binarize_area)
     elif util_func_name == "gradient_aware_area":
         penalty_param = kwargs.get('penalty_param', 0.5)
         util_func = GradientAwareAreaUtil(
@@ -36,13 +44,18 @@ def run_pipeline(
     elif util_func_name == "max_rectangle":
         util_func = LargestRectangleUtil(image_shape=(n_pixels, n_pixels))
 
-
-    output_path = "/home/yz685/low_rank_BOPE/experiments/shapes/" + \
-        f"{n_pixels}by{n_pixels}_{util_func_name}/"
-
     print("methods to plug into BopeExperiment: ", methods)
 
-    experiment = BopeExperiment(
+    if retrain:
+        experiment_class = RetrainingBopeExperiment
+        output_path = "/home/yz685/low_rank_BOPE/experiments/shapes_rt/" + \
+            f"{n_pixels}by{n_pixels}_{outcome_func_name}_{util_func_name}/"
+    else:
+        experiment_class = BopeExperiment
+        output_path = "/home/yz685/low_rank_BOPE/experiments/shapes/" + \
+            f"{n_pixels}by{n_pixels}_{outcome_func_name}_{util_func_name}/"
+
+    experiment = experiment_class(
         problem, 
         util_func, 
         methods = methods,
@@ -67,9 +80,11 @@ if __name__ == "__main__":
         trial_idx = trial_idx,
         n_pixels=args["n_pixels"],
         util_func_name = args["util_func_name"],
+        outcome_func_name = args["outcome_func_name"],
+        retrain = args["retrain"],
         n_check_post_mean = args["n_check_post_mean"], 
-        methods=args["methods"], 
-        pe_strategies=args["pe_strategies"],
+        methods = args["methods"], 
+        pe_strategies = args["pe_strategies"],
         pca_var_threshold = args["pca_var_threshold"],
         initial_experimentation_batch = args["init_exp_batch"],
         penalty_param = args["penalty_param"],

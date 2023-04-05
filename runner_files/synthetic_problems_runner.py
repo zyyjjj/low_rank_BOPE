@@ -10,12 +10,14 @@ import torch
 import yaml
 
 from low_rank_BOPE.bope_class import BopeExperiment
+from low_rank_BOPE.bope_class_retraining import RetrainingBopeExperiment
 from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, generate_principal_axes, make_controlled_coeffs, make_problem)
 
 
 def run_pipeline(
     experiment_configs, config_name, trial_idx, outcome_dim, input_dim, noise_std, 
+    retrain,
     methods = ["st", "pca", "pcr", "true_proj"],
     pe_strategies = ["EUBO-zeta", "Random-f"],
     alphas = [0, 0.2, 0.4, 0.6, 0.8, 1.0],
@@ -34,6 +36,13 @@ def run_pipeline(
         dtype=torch.double,
         seed=problem_seed
     )
+
+    if retrain: 
+        experiment_class = RetrainingBopeExperiment
+        suffix = "_rt"
+    else:
+        experiment_class = BopeExperiment
+        suffix = ""
 
     for alpha in alphas: 
 
@@ -65,12 +74,12 @@ def run_pipeline(
             problem_seed = problem_seed
         )
 
-        output_path = "/home/yz685/low_rank_BOPE/experiments/synthetic/" + \
+        output_path = f"/home/yz685/low_rank_BOPE/experiments/synthetic{suffix}/" + \
             f"{config_name}_{input_dim}_{outcome_dim}_{alpha}_{noise_std}/"
 
         print("methods to plug into BopeExperiment: ", methods)
 
-        experiment = BopeExperiment(
+        experiment = experiment_class(
             problem, 
             util_func, 
             methods = methods,
@@ -100,6 +109,7 @@ if __name__ == "__main__":
             outcome_dim = args["outcome_dim"],
             input_dim = args["input_dim"],
             noise_std = args["noise_std"],
+            retrain = args["retrain"],
             n_check_post_mean = args["n_check_post_mean"], 
             methods = args["methods"],
             pe_strategies = args["pe_strategies"],
