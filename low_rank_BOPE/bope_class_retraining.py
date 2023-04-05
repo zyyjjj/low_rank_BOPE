@@ -210,7 +210,9 @@ class RetrainingBopeExperiment:
         # Option 1: "eubo_better", just add the better EUBO candidate -- index specified in run_pref_learning()
         # Option 2: "post_mean", select based on posterior mean utility -- index specified here; also need to decide how many points to keep / discard
         # Option 3: "all", use all Y gathered so far
-        # the ones based on true util values are not practical as we don't have that info in practice
+        # Option 4: "max_post_mean", just for testing purpose, add point w max post mean util found through random search
+        # (the ones based on true util values are not practical as we don't have that info in practice)
+        # Diagnostics: model fit, subspace quality, BOPE performance compared to no-retraining PCA
 
         projection = None
         Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
