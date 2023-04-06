@@ -201,7 +201,7 @@ def plot_subspace_diagnostics_single(
 
     for method in methods:
         # a nested list where each sub-list is a record of metric over retraining for one trial
-        data = [outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][method] for trial_idx in available_trials]
+        data = [outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][metric] for trial_idx in available_trials]
 
         if len(data[0]) == 1:
             data_np = np.repeat(data, num_retrain, axis = 1)
