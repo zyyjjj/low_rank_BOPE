@@ -88,20 +88,31 @@ class RetrainingBopeExperiment:
         one run should handle one problem and >=1 methods and >=1 pe_strategies
 
         possible methods:
-            "uwpca": unweighted PCA, subspace trained only once on the 
+            "pca": unweighted PCA, subspace trained only once on the 
                 initial experimentation batch
-            "uwpca_rt": unweighted PCA, subspace retrained on accummulated 
+            "pca_all_rt": unweighted PCA, subspace retrained on all accummulated 
                 outcome data every time outcomes are queried in PE
-            "wpca_true_rt": weighted-retraining PCA, subspace retrained on selected subsets
-                of the accummulated outcome data (subsets continuously updated to include the
-                points with high true utility)
+            "pca_eubo_rt": unweighted PCA, subspace retrained on outcomes that
+                only includes the winners of the preference pairs
+            "pca_postquantile_rt": unweighted PCA, subspace retrained on outcomes that
+                have posterior utility mean in the top alpha-quantile among all outcomes
+                # TODO: requires another hyperparameter; come back to this
+            "pca_postmax_rt": unweighted PCA, subspace retrained by adding outcome 
+                vectors that maximize the current posterior mean utility
+            "wpca_true_rt": weighted-retraining PCA, subspace retrained on outcome
+                data each associated with a weight value that depends on its true
+                utility value. This is a generalization of the above selection 
+                methods, but also allow continuous weights so that we can 
+                (de)prioritize some points "softly"
             "wpca_est_rt": weighted-retraining PCA; similar to "wpca_true_rt" but
                 points are selected according to posterior mean utility
             "spca_true": supervised PCA, principal components are selected based on 
-                how much they affect the utility, rather than how much they explain
-                the variance in the outcomes; the subspace is trained only once
-                on the initial experimentation batch 
+                how much they affect the true utility, rather than how much they 
+                explain the variance in the outcomes; the subspace is trained 
+                only once on the initial experimentation batch 
             "spca_true_rt": similar to "spca_true" but subspace is retrained
+            "spca_est": similar to "spca_true" but supervised by posterior mean of 
+                utility model, rather than true utility values 
             "random_linear_proj": random projection to a linear subspace; the 
                 projection is created independent of the data
             "random subset": randomly select a subset of outcomes and fit smaller GPs
@@ -127,20 +138,20 @@ class RetrainingBopeExperiment:
             os.makedirs(self.output_path)
         if hasattr(self.problem, "true_axes"):
             self.true_axes = self.problem.true_axes
-        self.subspace_methods_headers = ["uwpca", "wpca", "random_linear_proj", "spca"]
+        self.subspace_methods_headers = ["pca", "wpca", "random_linear_proj", "spca"]
 
-        if "uwpca" in methods:
+        if "pca" in methods:
             # run unweighted pca first, so that the learned latent_dim
             # informs the other methods with dim reduction
-            self.methods = ["uwpca"] + [m for m in methods if m != "uwpca"]
+            self.methods = ["pca"] + [m for m in methods if m != "pca"]
             print('self.methods, ', self.methods)
         else:
-            # if "uw_pca" is not run and initial_latent_dim is not specified
+            # if "pca" is not run and initial_latent_dim is not specified
             # set self.initial_latent_dim by hand
             self.methods = methods
             if not self.initial_latent_dim:
                 self.initial_latent_dim = self.outcome_dim // 3
-        # NOTE: method is suffixed "_rt" if retraining, e.g., "uwpca", "uwpca_rt"
+        # NOTE: method is suffixed "_rt" if retraining
         # the subspace is updated during PE only if the method ends with "rt"
 
         # logging model specifics
@@ -149,6 +160,7 @@ class RetrainingBopeExperiment:
         self.pref_data_dict = defaultdict(dict)  # (Y, util_vals, comps) by (method, pe_strategy)
         self.projections_dict = {} # stores projections to subspaces, by (method, pe_strategy)
         self.transforms_covar_dict = {} # specify outcome and input transforms, covariance modules, by (method, pe_strategy)
+        self.subspace_training_Y = {} # outcome data used for subspace learning, by (method, pe_strategy)
 
         # log results
         self.PE_time_dict = {}
@@ -201,33 +213,32 @@ class RetrainingBopeExperiment:
                         "util_vals": util_vals,
                         "comps": comps
                     }
+                    self.subspace_training_Y[(method, pe_strategy)] = self.Y
 
     def compute_projections(self, method, pe_strategy):
-
-        # TODO: do some selection of the data I train the subspace on
-        # probably need `retrain_strategy`, only one at a time; decoupled from `method` and `pe_strategy`
-        # implementation-wise: have a list of indices of entries in Y to include? for each (method, pe_strategy), and continually updated
-        # Option 1: "eubo_better", just add the better EUBO candidate -- index specified in run_pref_learning()
-        # Option 2: "post_mean", select based on posterior mean utility -- index specified here; also need to decide how many points to keep / discard
-        # Option 3: "all", use all Y gathered so far
-        # Option 4: "max_post_mean", just for testing purpose, add point w max post mean util found through random search
-        # (the ones based on true util values are not practical as we don't have that info in practice)
-        # Diagnostics: model fit, subspace quality, BOPE performance compared to no-retraining PCA
-
+        
         projection = None
         Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
 
-        if method.startswith("uwpca"): 
-            # could be "uwpca" or "uwpca_rt"
+        if method.startswith("pca"): 
+            # Multiple retraining strategies we can try:
+            # "pca_all_rt", "pca_eubo_rt", "pca_postquant_rt", "pca_postmax_rt"
+            # (the ones based on true util values are not practical as we don't have that info in practice)
 
+            if method in ("pca", "pca_all_rt"):
+                Y_selected = Y
+            else: # pca_eubo_rt, pca_postquant_rt, pca_postmax_rt
+                Y_selected = self.subspace_training_Y[(method, pe_strategy)]
+            print("Y_selected shape: ", Y_selected.shape)
+            
             projection = fit_pca(
-                Y, # TODO: doesn't have to be Y
+                Y_selected,
                 var_threshold=self.pca_var_threshold, 
                 weights=None,
                 standardize=self.standardize
             ) 
 
-            if method == "uwpca": # i.e., no retraining, just fit subspace once
+            if method == "pca": # i.e., no retraining, just fit subspace once
                 self.initial_latent_dim = projection.shape[0]
 
         elif method.startswith("wpca_true"):
@@ -246,13 +257,14 @@ class RetrainingBopeExperiment:
 
         # TODO: currently not running well, come back to this
         elif method.startswith("wpca_est"):
-            if "w_pca_est" in self.util_models_dict:
+            if "wpca_est" in self.util_models_dict:
                 # use posterior mean as utility value estimate, if a model exists
                 util_vals_est = self.util_models_dict["w_pca_est"].posterior(Y).mean
                 weights = compute_weights(util_vals_est.squeeze(1), weights_type="rank_bin")
             else:
                 # otherwise, use uniform weights
                 weights = torch.ones((Y.shape[0],1))
+            
             projection = fit_pca(
                 Y, 
                 var_threshold=self.pca_var_threshold, 
@@ -281,7 +293,7 @@ class RetrainingBopeExperiment:
             
             # select top `self.initial_latent_dim` entries of PC_coeff
             # TODO: not sure this is the best thing to do, 
-            # alternative is to have it always align with uwpca
+            # alternative is to have it always align with pca
             dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.initial_latent_dim:]
             print('dims_to_keep: ', dims_to_keep)
             if len(dims_to_keep.shape) == 2:
@@ -320,7 +332,6 @@ class RetrainingBopeExperiment:
             self.projections_dict[(method, pe_strategy)] = projection
 
             self.transforms_covar_dict[(method, pe_strategy)] = {
-                # TODO: check the chained o/i transforms
                 "outcome_tf": ChainedOutcomeTransform(
                     **{
                         "projection": LinearProjectionOutcomeTransform(projection),
@@ -421,10 +432,6 @@ class RetrainingBopeExperiment:
                     util_model = self.fit_util_model(
                         method, pe_strategy
                     )
-                    # TODO: commented out to accelerate things
-                    # util_model_acc = check_util_model_fit(
-                    #     util_model, problem=problem, util_func=util_func, n_test=1000, batch_eval=batch_eval
-                    # )
                     print("Pref model fitting successful")
                     fit_model_succeed = True
                     break
@@ -456,7 +463,7 @@ class RetrainingBopeExperiment:
                                 q=2,
                                 bounds=self.problem.bounds,
                                 num_restarts=self.num_restarts,
-                                raw_samples=self.raw_samples,  # used for intialization heuristic
+                                raw_samples=self.raw_samples,
                                 options={"batch_limit": 4, "seed": self.trial_idx},
                             )
                             cand_Y = one_sample_outcome_model(cand_X) 
@@ -500,7 +507,12 @@ class RetrainingBopeExperiment:
             train_Y = torch.cat((train_Y, cand_Y))
             train_util_vals = torch.cat((train_util_vals, cand_util_val))
             print('train_Y, train_comps shape: ', train_Y.shape, train_comps.shape)
-            # TODO: save the index of the better between cand_Y to update the subspace with
+
+            if method == "pca_eubo_rt":
+                self.subspace_training_Y[(method, pe_strategy)] = torch.cat(
+                    (self.subspace_training_Y[(method, pe_strategy)],
+                     cand_Y[cand_comps[0][0].item()].unsqueeze(0))
+                )
 
             self.pref_data_dict[(method, pe_strategy)] = {
                 "Y": train_Y,
@@ -511,8 +523,6 @@ class RetrainingBopeExperiment:
 
     def find_max_posterior_mean(self, method, pe_strategy, num_pref_samples=1):
 
-        # train_Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
-        # train_comps = self.pref_data_dict[(method, pe_strategy)]["comps"]
         n_comps = self.pref_data_dict[(method, pe_strategy)]["comps"].shape[0]
 
         within_result = {}
@@ -536,11 +546,18 @@ class RetrainingBopeExperiment:
             acqf_name="posterior_mean",
             seed=self.trial_idx
         )
-
         post_mean_util = self.util_func(
             self.problem.evaluate_true(post_mean_cand_X)).item()
         print(
             f"True utility of posterior mean utility maximizer: {post_mean_util:.3f}")
+
+        if method == "pca_postmax_rt":
+            outcome_to_add = self.outcome_models_dict[(method, pe_strategy)].posterior(post_mean_cand_X).mean
+            self.subspace_training_Y[(method, pe_strategy)] = torch.cat(
+                (self.subspace_training_Y[(method, pe_strategy)],
+                outcome_to_add)
+            )
+
         # look at util_model(outcome_model(x)) for a large number of sampled x
         util_posterior_landscape = get_function_statistics(
             function=util_model, 
@@ -572,9 +589,6 @@ class RetrainingBopeExperiment:
         return within_result
 
     def generate_final_candidate(self, method, pe_strategy):
-
-        # train_Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
-        # train_comps = self.pref_data_dict[(method, pe_strategy)]["comps"]
 
         util_model = self.fit_util_model(
             method, pe_strategy
