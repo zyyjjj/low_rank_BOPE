@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from typing import Optional, List
 import pandas as pd
+import numpy as np
 import os
 
 # ===== Plotting settings =====
@@ -52,14 +53,16 @@ x_jitter_dict = {
 }
 
 
-# ===== Functions for plotting =====
+# ===== Plotting results in PE stage =====
 
+# "within_session_results" -- results logged during PE stage
 def plot_candidate_over_comps_multiple(
     outputs: dict,
     problem_type: str,
     problem_l: List[str], 
     methods: List[str],
     pe_strategy: str, 
+    metric: str = "util",
     num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
@@ -78,12 +81,16 @@ def plot_candidate_over_comps_multiple(
         problem_l: list of problem names
         methods: list of methods to show
         pe_strategy: single PE strategy to plot
+        metric: the quantity to plot, one of {"util", "util_model_acc"}
         num_plot_datapoints: number of checkpoints to show in the plot
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
     """
 
-    f, axs = plt.subplots(1, len(problem_l), figsize=(10, 3))
+    f, axs = plt.subplots(
+        1, len(problem_l), 
+        figsize=kwargs.get("figsize", (10,3))
+    )
 
     for j in range(len(problem_l)):
         problem = problem_l[j]
@@ -95,7 +102,6 @@ def plot_candidate_over_comps_multiple(
             num_pixels, _ = problem.split("by")
             outcome_dim = int(num_pixels) ** 2
         
-
         within_session_results = [res 
                                 for i in outputs[problem]['within_session_results'].keys() 
                                 for res in outputs[problem]["within_session_results"][i]]
@@ -105,8 +111,7 @@ def plot_candidate_over_comps_multiple(
         within_df["pe_strategy"] = within_df["pe_strategy"].str.replace("EUBO-zeta", r"$EUBO-\\zeta$")
         within_df = (
             within_df.groupby(["n_comps", "method", "pe_strategy"])
-            .agg({"util": ["mean", "sem"]}) 
-            # TODO: can we generalize the function to allow aggregating over a different quantity 
+            .agg({metric: ["mean", "sem"]}) 
             .droplevel(level=0, axis=1)
             .reset_index()
         )
@@ -141,8 +146,13 @@ def plot_candidate_over_comps_multiple(
                         fontsize=kwargs.get("title_fontsize", 12.5)
                     )
 
+    if metric == "util":
+        ylabel = "True utility of estimated \n utility-maximizing design"
+    elif metric == "util_model_acc":
+        ylabel = "Rank accuracy of the utility model"
+
     axs[0].set_ylabel(
-        "True utility of estimated \n utility-maximizing design", 
+        ylabel, 
         fontsize=kwargs.get("ylabel_fontsize", 12)
     )
     axs[0].legend(
@@ -159,6 +169,81 @@ def plot_candidate_over_comps_multiple(
         f.savefig(save_path + save_file_name, bbox_inches = "tight")
 
 
+
+
+# "subspace_diagnostics" -- diagnostics of subspace quality logged during PE stage
+def plot_subspace_diagnostics_single(
+    outputs: dict,
+    problem: str,
+    methods: List[str] = ["uwpca", "uwpca_rt"],
+    pe_strategy: str = "EUBO-zeta",
+    metric: str = "best_util",
+    save_path: Optional[str] = None,
+    save_file_name: Optional[str] = None,
+    **kwargs
+):
+    r"""
+    Plot the evolution of `metric` in iterative retraining of subspace methods
+
+    Args:
+        outputs: big nested dictionary storing loaded experiment outputs
+        problem: problem name
+        methods: list of methods to show
+        pe_strategy: single PE strategy to plot
+        metric: the quantity of interest, 
+            one of {"best_util", "model_fitting_time", "rel_mse", "max_util_error", "max_outcome_error"}
+        save_path: directory to save the figure, if saving
+        save_file_name: file name under save_path to save the figure, if saving
+    """
+
+    available_trials = list(outputs[problem]["subspace_diagnostics"].keys())
+    num_retrain = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("uwpca_rt", pe_strategy)][metric])
+
+    for method in methods:
+        # a nested list where each sub-list is a record of metric over retraining for one trial
+        data = [outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][method] for trial_idx in available_trials]
+
+        if len(data[0]) == 1:
+            data_np = np.repeat(data, num_retrain, axis = 1)
+        else:
+            data_np = np.array(data)
+        
+        mean = np.array(data_np).mean(axis=0)
+        sem = np.std(data_np, axis=0, ddof=1) / np.sqrt(len(available_trials))
+            
+        plt.plot(mean, color=colors_dict[method], label=labels_dict[method])
+        plt.fill_between(
+            x=range(len(mean)), 
+            y1=mean-sem*kwargs.get("yerr_sems", 1), 
+            y2=mean+sem*kwargs.get("yerr_sems", 1), 
+            alpha=0.4, 
+            color=colors_dict[method]
+        )
+    
+    plt.legend(loc=kwargs.get("legend_loc", "lower left"))
+    plt.xlabel("Number of times retrained")
+    
+    if metric == "best_util":
+        y_label = "Best utility in subspace"
+    elif metric == "model_fitting_time":
+        y_label = "Time to fit outcome model"
+    elif metric == "rel_mse":
+        y_label = "MSE of outcome model"
+    # TODO: "max_util_error", "max_outcome_error"
+
+    plt.ylabel(y_label)
+    plt.title(f"{problem},\n {y_label} over retraining")
+
+    if save_path is not None:
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        
+        plt.savefig(save_path + save_file_name, bbox_inches = "tight")
+
+
+# ===== Plotting final results =====
+
+# "exp_candidate_results" -- results logged in the 2nd experimentation stage
 def plot_result_metric_multiple(
     outputs: dict,
     problem_type: str,
@@ -187,7 +272,6 @@ def plot_result_metric_multiple(
             "candidate_util": "Utility of final candidate"
             "PE_time": "Time consumed in preference exploration"
             "util_model_acc": "Final utility model accuracy"
-            # TODO: with retraining, some of these are logged multiple times in one trial
         pe_strategies: list of PE strategies (usually I'd just put one)
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
@@ -277,8 +361,3 @@ def plot_result_metric_multiple(
         
         f.savefig(save_path + save_file_name, bbox_inches = "tight")
 
-
-
-
-# TODO: after the changes for retraining, I probably need to have another function 
-# plotting these metrics over addition of datapoints? Need to think this through
