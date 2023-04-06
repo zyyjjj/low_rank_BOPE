@@ -3,6 +3,7 @@ import sys
 from typing import List, Optional, Tuple
 
 import gpytorch
+import scipy.stats as stats
 import torch
 from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 from botorch.models.model import Model
@@ -312,7 +313,8 @@ def check_util_model_fit(
     n_test: int, 
     batch_eval: bool,
     return_util_vals: bool = False,
-    projection: Optional[Tensor] = None
+    projection: Optional[Tensor] = None,
+    kendalltau: bool = True
 ) -> float:
     r"""
     Evaluate the goodness of fit of the utility model.
@@ -328,6 +330,8 @@ def check_util_model_fit(
         pref_prediction_accuracy: fraction of the `n_test/2` pairwise
             preference that the model correctly predicts
     """
+
+    # TODO: kendall-tau rank correlation seems to be a better metric!
 
     # generate test set
     test_X, test_Y, test_util_vals, test_comps = gen_initial_real_data(
@@ -346,18 +350,26 @@ def check_util_model_fit(
         posterior_util_mean = pref_model.posterior(test_Y).mean
     posterior_util_mean_ = posterior_util_mean.reshape((n_test // 2, 2))
 
-    # compute pref prediction accuracy
-    # the prediction for pair (i, i+1) is correct if
-    # item i is preferred to item i+1, so the row in test_comps is [i, i+1]
-    # and predicted utility of item i is higher than that of i+1
-    # vice versa: [i+1, i] and posterior_util(i) < posterior_util(i+1)
-    correct_test_rankings = (posterior_util_mean_[:,0] - posterior_util_mean_[:,1]) * (
-        test_comps[:, 0] - test_comps[:, 1]
-    )
-    pref_prediction_accuracy = sum(correct_test_rankings < 0) / len(
-        correct_test_rankings
-    )
-    print('util model accuracy', pref_prediction_accuracy.item())
+    if kendalltau:
+        # compute kendall's tau rank correlation
+        pref_prediction_accuracy, p = stats.kendalltau(
+            posterior_util_mean.detach().numpy(), 
+            test_util_vals.detach().numpy()
+        )
+        print(f"Kendall's tau rank correlation: {pref_prediction_accuracy}, p-value: {p}")
+    else:
+        # compute pref prediction accuracy for adjacent pairs
+        # the prediction for pair (i, i+1) is correct if
+        # item i is preferred to item i+1, so the row in test_comps is [i, i+1]
+        # and predicted utility of item i is higher than that of i+1
+        # vice versa: [i+1, i] and posterior_util(i) < posterior_util(i+1)
+        correct_test_rankings = (posterior_util_mean_[:,0] - posterior_util_mean_[:,1]) * (
+            test_comps[:, 0] - test_comps[:, 1]
+        )
+        pref_prediction_accuracy = sum(correct_test_rankings < 0) / len(
+            correct_test_rankings
+        )
+        print('util model accuracy', pref_prediction_accuracy.item())
 
     if return_util_vals:
         return test_util_vals, posterior_util_mean, pref_prediction_accuracy.item()
