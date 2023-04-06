@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 from typing import Optional, List
 import pandas as pd
 import numpy as np
@@ -56,13 +57,139 @@ x_jitter_dict = {
 # ===== Plotting results in PE stage =====
 
 # "within_session_results" -- results logged during PE stage
-def plot_candidate_over_comps_multiple(
+
+def plot_performance_over_comps_single(
+    outputs: dict,
+    problem_type: str,
+    problem: str,
+    methods: List[str],
+    pe_strategy: str, 
+    metric: str = "util",
+    shade: bool = True,
+    num_plot_datapoints: Optional[int] = None,
+    save_path: Optional[str] = None,
+    save_file_name: Optional[str] = None,
+    **kwargs
+):
+    r"""
+    Create a plot of performance evolution over PE comparisons for one problem,
+    with one pe strategy and multiple methods.
+
+    Args:
+        outputs: big nested dictionary storing loaded experiment outputs
+        problem_type: one of {"synthetic", "shapes", "cars",}
+            this helps the function decide how to parse input/outcome dims from the problem name
+        problem: problem name
+        methods: list of methods to show
+        pe_strategy: single PE strategy to plot
+        metric: the quantity to plot, one of {"util", "util_model_acc"}
+        shade: whether to plot error bars as shaded regions or not
+        num_plot_datapoints: number of checkpoints to show in the plot
+        save_path: directory to save the figure, if saving
+        save_file_name: file name under save_path to save the figure, if saving
+    """
+    f, axs = plt.subplots(1, 1, 
+                          figsize=kwargs.get("figsize",(6, 4))
+                          )
+    
+    if problem_type == "synthetic":
+        _, rank, _, input_dim, outcome_dim, alpha, noise = problem.split('_')
+    elif problem_type == "shapes":
+        input_dim = 4
+        num_pixels, _ = problem.split("by")
+        outcome_dim = int(num_pixels) ** 2
+    
+    within_session_results = [res 
+                              for i in outputs[problem]['within_session_results'].keys() 
+                              for res in outputs[problem]["within_session_results"][i]]
+
+    within_df = pd.DataFrame(within_session_results)
+
+    within_df["pe_strategy"] = within_df["pe_strategy"].str.replace("EUBO-zeta", r"$EUBO-\\zeta$")
+    # print(within_df.groupby(["n_comps", "method", "pe_strategy"]).count())
+
+    within_df = (
+        within_df.groupby(["n_comps", "method", "pe_strategy"])
+        .agg({metric: ["mean", "sem"]})
+        .droplevel(level=0, axis=1)
+        .reset_index()
+    )
+
+    for name, group in within_df.groupby(["method", "pe_strategy"]):
+        if name[1] == pe_strategy:
+            if name[0] in methods:
+
+                if num_plot_datapoints is None:
+                    num_plot_datapoints = len(group["n_comps"].values)
+
+                jitter = x_jitter_dict[group["method"].values[0]]
+                x_jittered = [x_ + jitter for x_ in group["n_comps"].values]
+                print(name[0], name[1], 'n_comps: ', group["n_comps"].values)
+
+                if shade: 
+                    axs.plot(
+                        # x_jittered[:num_plot_datapoints],
+                        group["n_comps"].values,
+                        group["mean"].values[:num_plot_datapoints],
+                        label=labels_dict[name[0]],
+                        color=colors_dict[name[0]],
+                    )
+                    axs.fill_between(
+                        # x=x_jittered[:num_plot_datapoints],
+                        group["n_comps"].values,
+                        y1=group["mean"].values[:num_plot_datapoints] \
+                            - group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                        y2=group["mean"].values[:num_plot_datapoints] \
+                            + group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                        alpha=kwargs.get("alpha", 0.2),
+                        color=colors_dict[name[0]],
+                    )
+                else:
+                    axs.errorbar(
+                        x=x_jittered[:num_plot_datapoints],
+                        y=group["mean"].values[:num_plot_datapoints],
+                        yerr=group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                        label=labels_dict[name[0]],
+                        linewidth=1.5,
+                        capsize=3,
+                        alpha=0.6,
+                        color=colors_dict[name[0]],
+                    )
+
+                axs.set_xlabel("Number of comparisons")
+                axs.set_title(
+                    f"{problem}\n d={input_dim}, k={outcome_dim}", 
+                    fontsize=kwargs.get("title_fontsize", 12.5)
+                )
+                axs.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    if metric == "util":
+        ylabel = "True utility of estimated \n utility-maximizing design"
+    elif metric == "util_model_acc":
+        ylabel = "Rank accuracy of the utility model"
+
+    axs.set_ylabel(ylabel)
+    axs.legend(
+        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
+        loc=kwargs.get("legend_loc", "lower left"), 
+        ncol=kwargs.get("legend_ncols", 5), 
+        fontsize=kwargs.get("legend_fontsize", 12)
+    )
+
+    if save_path is not None:
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        
+        f.savefig(save_path + save_file_name, bbox_inches = "tight")
+
+def plot_performance_over_comps_multiple(
     outputs: dict,
     problem_type: str,
     problem_l: List[str], 
     methods: List[str],
     pe_strategy: str, 
     metric: str = "util",
+    shade: bool = True,
     num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
@@ -75,16 +202,8 @@ def plot_candidate_over_comps_multiple(
     with one pe strategy and multiple methods.
 
     Args:
-        outputs: big nested dictionary storing loaded experiment outputs
-        problem_type: one of {"synthetic", "shapes", "cars",}
-            this helps the function decide how to parse input/outcome dims from the problem name
         problem_l: list of problem names
-        methods: list of methods to show
-        pe_strategy: single PE strategy to plot
-        metric: the quantity to plot, one of {"util", "util_model_acc"}
-        num_plot_datapoints: number of checkpoints to show in the plot
-        save_path: directory to save the figure, if saving
-        save_file_name: file name under save_path to save the figure, if saving
+        All the others are the same as plot_performance_over_comps_single()
     """
 
     f, axs = plt.subplots(
@@ -126,16 +245,34 @@ def plot_candidate_over_comps_multiple(
                     jitter = x_jitter_dict[group["method"].values[0]]
                     x_jittered = [x_ + jitter for x_ in group["n_comps"].values]
 
-                    axs[j].errorbar(
-                        x=x_jittered[:num_plot_datapoints],
-                        y=group["mean"].values[:num_plot_datapoints],
-                        yerr = group["sem"][:num_plot_datapoints] * kwargs.get("yerr_sems", 1.96),
-                        label=labels_dict[name[0]],
-                        linewidth=1.5,
-                        capsize=3,
-                        alpha=0.6,
-                        color=colors_dict[name[0]],
-                    )
+                    if shade:
+                        axs[j].plot(
+                            # x_jittered[:num_plot_datapoints],
+                            group["n_comps"].values,
+                            group["mean"].values[:num_plot_datapoints],
+                            label=labels_dict[name[0]],
+                            color=colors_dict[name[0]],
+                        )
+                        axs[j].fill_between(
+                            # x=x_jittered[:num_plot_datapoints],
+                            group["n_comps"].values,
+                            y1=group["mean"].values[:num_plot_datapoints]-group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                            y2=group["mean"].values[:num_plot_datapoints]+group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                            alpha=kwargs.get("alpha", 0.2),
+                            color=colors_dict[name[0]],
+                        )
+
+                    else:
+                        axs[j].errorbar(
+                            x=x_jittered[:num_plot_datapoints],
+                            y=group["mean"].values[:num_plot_datapoints],
+                            yerr = group["sem"][:num_plot_datapoints] * kwargs.get("yerr_sems", 1.96),
+                            label=labels_dict[name[0]],
+                            linewidth=1.5,
+                            capsize=3,
+                            alpha=0.6,
+                            color=colors_dict[name[0]],
+                        )
 
                     axs[j].set_xlabel(
                         "Number of comparisons", 
@@ -169,8 +306,6 @@ def plot_candidate_over_comps_multiple(
         f.savefig(save_path + save_file_name, bbox_inches = "tight")
 
 
-
-
 # "subspace_diagnostics" -- diagnostics of subspace quality logged during PE stage
 def plot_subspace_diagnostics_single(
     outputs: dict,
@@ -178,6 +313,7 @@ def plot_subspace_diagnostics_single(
     methods: List[str] = ["uwpca", "uwpca_rt"],
     pe_strategy: str = "EUBO-zeta",
     metric: str = "best_util",
+    shade: bool = True,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
     **kwargs
@@ -192,6 +328,7 @@ def plot_subspace_diagnostics_single(
         pe_strategy: single PE strategy to plot
         metric: the quantity of interest, 
             one of {"best_util", "model_fitting_time", "rel_mse", "max_util_error", "max_outcome_error"}
+        shade: whether to plot error bars as shaded regions or not
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
     """
@@ -210,16 +347,28 @@ def plot_subspace_diagnostics_single(
         
         mean = np.array(data_np).mean(axis=0)
         sem = np.std(data_np, axis=0, ddof=1) / np.sqrt(len(available_trials))
-            
-        plt.plot(mean, color=colors_dict[method], label=labels_dict[method])
-        plt.fill_between(
-            x=range(len(mean)), 
-            y1=mean-sem*kwargs.get("yerr_sems", 1), 
-            y2=mean+sem*kwargs.get("yerr_sems", 1), 
-            alpha=0.4, 
-            color=colors_dict[method]
-        )
-    
+        
+        if shade:
+            plt.plot(mean, color=colors_dict[method], label=labels_dict[method])
+            plt.fill_between(
+                x=range(len(mean)), 
+                y1=mean-sem*kwargs.get("yerr_sems", 1), 
+                y2=mean+sem*kwargs.get("yerr_sems", 1), 
+                alpha=0.4, 
+                color=colors_dict[method]
+            )
+        else:
+            plt.errorbar(
+                x=range(len(mean)),
+                y=mean,
+                yerr=sem*kwargs.get("yerr_sems", 1),
+                color=colors_dict[method],
+                label=labels_dict[method],
+                linewidth=1.5,
+                capsize=3,
+                alpha=0.6,
+            )
+
     plt.legend(loc=kwargs.get("legend_loc", "lower left"))
     plt.xlabel("Number of times retrained")
     
@@ -239,6 +388,9 @@ def plot_subspace_diagnostics_single(
             os.makedirs(save_path)
         
         plt.savefig(save_path + save_file_name, bbox_inches = "tight")
+
+
+# TODO: add plot_subspace_diagnostics_multiple()
 
 
 # ===== Plotting final results =====
