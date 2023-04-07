@@ -8,6 +8,23 @@ from torch import Tensor
 # code credit to
 # https://github.com/katieshiqihe/music_in_python
 
+# dissonance measure from approximated Plomp-Levelt curve
+# adapted from https://alpof.wordpress.com/2015/04/05/consonance-calculations-1/ 
+DISSONANCE = {
+    0: 0,
+    1: 0.6119546974596196,
+    2: 0.4555781663778304,
+    3: 0.31555474895490304, # minor third
+    4: 0.33938492778443635, # major third
+    5: 0.2336166616600329, # perfect fourth
+    6: 0.40697871585987755,
+    7: 0.08247001463897903, # major fifth
+    8: 0.38310515863591793,
+    9: 0.13115879976347125, # major sixth
+    10: 0.2592949302193497,
+    11: 0.34862700080473974,
+    12: 0.005167515119296202 # octave
+}
 
 def get_combined_sine_wave(
     frequencies: Tensor, 
@@ -95,6 +112,16 @@ class HarmonyTwoKeys(SyntheticTestFunction):
 
 # utility function measuring consonance
 
+# Plomp-Levelt curve approximation
+# unison: 0
+# minor third: 0.31555474895490304
+# major third: 0.33938492778443635
+# fourth: 0.2336166616600329
+# major fifth: 0.08247001463897903
+# major sixth: 0.13115879976347125
+# octave: 0.005167515119296202
+
+
 class Consonance(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -123,8 +150,3 @@ class Consonance(torch.nn.Module):
         
         """
 
-
-
-
-
-        
