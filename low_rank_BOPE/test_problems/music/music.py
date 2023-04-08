@@ -3,6 +3,7 @@ from typing import Optional
 import numpy as np
 import torch
 from botorch.test_functions import SyntheticTestFunction
+from scipy.fft import fft, fftfreq
 from torch import Tensor
 
 # code credit to
@@ -11,7 +12,6 @@ from torch import Tensor
 # dissonance measure from approximated Plomp-Levelt curve
 # adapted from https://alpof.wordpress.com/2015/04/05/consonance-calculations-1/ 
 DISSONANCE = {
-    0: 0,
     1: 0.6119546974596196,
     2: 0.4555781663778304,
     3: 0.31555474895490304, # minor third
@@ -25,6 +25,8 @@ DISSONANCE = {
     11: 0.34862700080473974,
     12: 0.005167515119296202 # octave
 }
+# TODO: think later if we want more (spectrum, dissonance) pairs
+
 
 def get_combined_sine_wave(
     frequencies: Tensor, 
@@ -65,7 +67,12 @@ class HarmonyOneKey(SyntheticTestFunction):
     dim = 1
     _bounds = torch.tensor([[0., 1.]]) # press two keys together
 
-    def __init__(self, base_key = 51, duration = 0.01): # key 52 = C5
+    def __init__(
+        self, 
+        base_key = 48, # key 49 = A4
+        duration = 0.01, 
+        amplitude = 1
+    ): 
         super().__init__()
         # self.outcome_bounds has to do with amplitude
         self.note_freqs = [2**((n+1-49)/12)*440 for n in range(88)]
@@ -73,6 +80,7 @@ class HarmonyOneKey(SyntheticTestFunction):
         self.base_freq = self.note_freqs[base_key]
         self.key_size = 1/12
         self.duration = duration
+        self.amplitude = amplitude
         
         
     def evaluate_true(self, X):
@@ -83,7 +91,13 @@ class HarmonyOneKey(SyntheticTestFunction):
         for sample_idx in range(X.shape[-2]):
             key = int(self.base_key + keys[sample_idx].item())
             freq = self.note_freqs[key]
-            Y.append(get_combined_sine_wave([self.base_freq, freq], duration = self.duration))
+            Y.append(
+                get_combined_sine_wave(
+                    frequencies=[self.base_freq, freq], 
+                    duration=self.duration,
+                    amplitude=self.amplitude
+                )
+            )
         
         return torch.vstack(Y)
 
@@ -108,30 +122,13 @@ class HarmonyTwoKeys(SyntheticTestFunction):
         # get the signals for individual keys
         # then add them up
 
-    
-
-# utility function measuring consonance
-
-# Plomp-Levelt curve approximation
-# unison: 0
-# minor third: 0.31555474895490304
-# major third: 0.33938492778443635
-# fourth: 0.2336166616600329
-# major fifth: 0.08247001463897903
-# major sixth: 0.13115879976347125
-# octave: 0.005167515119296202
-
-
 class Consonance(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, model_spectra, dissonance_vals):
         super().__init__()
-        pass
+        self.model_spectra = model_spectra
+        self.dissonance_vals = dissonance_vals
     
     def forward(self, Y: Tensor):
-        pass
-
-        # NOTE: this is mapping from signal to utility, not from frequency to utility! 
-        # how about doing a fourier decompsition here and design some function in the frequency domain
 
         """
         new idea from peter: compute similarity with known pleasant spectra
@@ -146,7 +143,59 @@ class Consonance(torch.nn.Module):
           (Euclidean? cosine similarity? probably need a normalizatio step?)
         - option 1: get the closest base spectrum, assign its pleasantness as the util value
         - option 2: compute the distance to all base spectra, 
-          take a weighted average of their pleasantness values (weights = 1/distance or something)
+          take a weighted average of their pleasantness values (weights = 1/(distance+epsilon) or something)
         
         """
 
+        res_all = []
+        for y in Y:
+            res_all.append(self.get_consonance(y))
+        
+        return torch.tensor(res_all).unsqueeze(1)
+
+
+    def get_consonance(self, y: Tensor):
+
+        # transform y to an array
+        y_np = y.detach().numpy()
+        yf = fft(y_np)
+        yf = 2.0/441 * np.abs(yf[:50]) # TODO: do not hardcode
+
+        # compute a distance measure between yf and all the model spectra
+        # cosine? L2?
+        # TODO: think through, enable more options
+
+        spectrum_similarity = []
+        for spectrum in self.model_spectra.values():
+            spectrum_distance = np.linalg.norm(yf-spectrum) # TODO: use vector operation later
+            print(spectrum_distance)
+            spectrum_similarity.append(1/(spectrum_distance+0.001)) # TODO: come back to this
+        spec_sim_sum = sum(spectrum_similarity)
+        print('\n')
+
+        return np.dot(
+            np.array(spectrum_similarity) / spec_sim_sum,
+            1-np.array(list(self.dissonance_vals.values()))
+        )
+        
+    
+
+
+
+def get_model_spectra():
+
+    problem = HarmonyOneKey()
+    test_X = torch.arange(0,1,1/12).unsqueeze(1)
+    test_Y = problem(test_X)
+
+    model_spectra = {}
+
+    for i in range(12):
+        test_y = test_Y[i].detach().numpy()
+        yf = fft(test_y)
+        model_spectra[i+1] = 2.0/441*np.abs(yf[:50]) # TODO: 50 is a hyperparameter, come back to this
+        
+    torch.save(
+        model_spectra, 
+        "/home/yz685/low_rank_BOPE/low_rank_BOPE/test_problems/music/model_spectra.pt"
+    )
