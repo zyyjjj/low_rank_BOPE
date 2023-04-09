@@ -54,10 +54,6 @@ def get_combined_sine_wave(
     return torch.tensor(np.sum(waves, axis=0), dtype=torch.double)
 
 
-# outcome function simulating signals from pressing two keys in an octave
-# NOTE: heat map of utility over [0,1]^2 would be cool
-
-
 class HarmonyOneKey(SyntheticTestFunction):
     r"""
     Class for simulating playing two notes together in an octave,
@@ -70,6 +66,7 @@ class HarmonyOneKey(SyntheticTestFunction):
     def __init__(
         self, 
         base_key = 48, # key 49 = A4
+        sample_rate = 44100,
         duration = 0.01, 
         amplitude = 1
     ): 
@@ -79,8 +76,11 @@ class HarmonyOneKey(SyntheticTestFunction):
         self.base_key = base_key
         self.base_freq = self.note_freqs[base_key]
         self.key_size = 1/12
+        self.sample_rate = sample_rate
         self.duration = duration
         self.amplitude = amplitude
+        
+        self.outcome_dim = int(self.sample_rate * self.duration)
         
         
     def evaluate_true(self, X):
@@ -95,42 +95,23 @@ class HarmonyOneKey(SyntheticTestFunction):
                 get_combined_sine_wave(
                     frequencies=[self.base_freq, freq], 
                     duration=self.duration,
+                    sample_rate=self.sample_rate,
                     amplitude=self.amplitude
                 )
             )
         
         return torch.vstack(Y)
 
-
-class HarmonyTwoKeys(SyntheticTestFunction):
-    r"""
-    Class for simulating playing two notes together in an octave.
-    """
-
-    dim = 2
-    _bounds = torch.tensor([[0., 1.], [0., 1.]]) # press two keys together
-
-    def __init__(self):
-        super().__init__()
-        # self.outcome_bounds has to do with amplitude
-        pass
-    
-    def evaluate_true(self, X):
-        pass
-
-        # first map X to keys, discretize [0,1] to 88 intervals
-        # get the signals for individual keys
-        # then add them up
-
+  
 class Consonance(torch.nn.Module):
-    def __init__(self, model_spectra, dissonance_vals):
+    def __init__(self, model_spectra: list, dissonance_vals: list, similarity_eps: float = 0.0001):
         super().__init__()
         self.model_spectra = model_spectra
         self.dissonance_vals = dissonance_vals
+        self.similarity_eps = similarity_eps
     
     def forward(self, Y: Tensor):
-
-        """
+        r"""
         new idea from peter: compute similarity with known pleasant spectra
 
         concretely: get the signal vectors of all combinations, do FFT (get base spectra), 
@@ -159,43 +140,66 @@ class Consonance(torch.nn.Module):
         # transform y to an array
         y_np = y.detach().numpy()
         yf = fft(y_np)
-        yf = 2.0/441 * np.abs(yf[:50]) # TODO: do not hardcode
+        yf = 2.0/len(y_np) * np.abs(yf[:len(self.model_spectra[0])])
 
         # compute a distance measure between yf and all the model spectra
         # cosine? L2?
         # TODO: think through, enable more options
 
         spectrum_similarity = []
-        for spectrum in self.model_spectra.values():
+        for spectrum in self.model_spectra:
             spectrum_distance = np.linalg.norm(yf-spectrum) # TODO: use vector operation later
-            print(spectrum_distance)
-            spectrum_similarity.append(1/(spectrum_distance+0.001)) # TODO: come back to this
+            spectrum_similarity.append(1/(spectrum_distance+self.similarity_eps)) # TODO: come back to this
         spec_sim_sum = sum(spectrum_similarity)
-        print('\n')
 
         return np.dot(
             np.array(spectrum_similarity) / spec_sim_sum,
-            1-np.array(list(self.dissonance_vals.values()))
+            1-np.array(list(self.dissonance_vals))
         )
-        
-    
 
 
-
-def get_model_spectra():
+def get_model_spectra(trunc_length: int):
 
     problem = HarmonyOneKey()
     test_X = torch.arange(0,1,1/12).unsqueeze(1)
     test_Y = problem(test_X)
 
-    model_spectra = {}
+    model_spectra = []
 
     for i in range(12):
         test_y = test_Y[i].detach().numpy()
         yf = fft(test_y)
-        model_spectra[i+1] = 2.0/441*np.abs(yf[:50]) # TODO: 50 is a hyperparameter, come back to this
-        
+        model_spectra.append(2.0/441*np.abs(yf[:trunc_length])) 
+
     torch.save(
         model_spectra, 
-        "/home/yz685/low_rank_BOPE/low_rank_BOPE/test_problems/music/model_spectra.pt"
+        f"/home/yz685/low_rank_BOPE/low_rank_BOPE/test_problems/music/model_spectra_{trunc_length}.pt"
     )
+
+    return model_spectra
+
+
+# outcome function simulating signals from pressing two keys in an octave
+# NOTE: heat map of utility over [0,1]^2 would be cool
+class HarmonyTwoKeys(SyntheticTestFunction):
+    r"""
+    Class for simulating playing two notes together in an octave.
+    """
+
+    dim = 2
+    _bounds = torch.tensor([[0., 1.], [0., 1.]]) # press two keys together
+
+    def __init__(self):
+        super().__init__()
+        # self.outcome_bounds has to do with amplitude
+        pass
+    
+    def evaluate_true(self, X):
+        pass
+
+        # first map X to keys, discretize [0,1] to 88 intervals
+        # get the signals for individual keys
+        # then add them up
+
+
+  
