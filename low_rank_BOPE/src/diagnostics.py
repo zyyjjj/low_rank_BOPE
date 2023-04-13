@@ -203,9 +203,9 @@ def mc_max_util_error(problem, projection, util_func, n_test) -> float:
     return torch.max(test_util_difference).item()
 
 
-def best_util_in_subspace(problem, projection, util_func, n_test = 1024):
+def best_and_avg_util_in_subspace(problem, projection, util_func, n_test = 1024):
     r"""
-    Compute the diagnostic $max_x g(VV^T f(x))$,
+    Compute the diagnostic $max_x g(VV^T f(x))$ and $E_x g(VV^T f(x))$
     through Monte Carlo sampling. V = projection transposed, where
     each column of V is a learned principal axis. 
     f is the true outcome function and g is the true utility function.
@@ -221,8 +221,8 @@ def best_util_in_subspace(problem, projection, util_func, n_test = 1024):
         util_func: ground truth utility function (outcome -> utility)
         n_test: number of test points to estimate the expectation
     Returns:
-        maximum utility values of sampled outcome vectors projected onto the 
-            subspace V
+        maximum and average utility value of sampled outcome vectors projected 
+            onto the subspace V
     """
 
     test_X = generate_random_inputs(problem, n_test).detach()
@@ -231,7 +231,9 @@ def best_util_in_subspace(problem, projection, util_func, n_test = 1024):
     # VV^T, projection onto subspace spanned by V, `outcome_dim x outcome_dim`
     proj = torch.transpose(projection, -2, -1) @ projection
 
-    return torch.max(util_func(test_Y @ proj)).item()
+    util_vals = util_func(test_Y @ proj)
+
+    return torch.max(util_vals).item(), torch.mean(util_vals).item()
 
 
 def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
@@ -303,11 +305,11 @@ def check_outcome_model_fit(
     # think of this as a generalized (1-R_squared) for vector valued outputs
     err = torch.sum((test_posterior_mean-test_Y) ** 2) / torch.sum((test_Y-test_Y_mean)**2)
 
-    return err
+    return err.item()
 
 
 def check_util_model_fit(
-    pref_model: Model, 
+    util_model: Model, 
     problem: torch.nn.Module, 
     util_func: torch.nn.Module, 
     n_test: int, 
@@ -319,7 +321,7 @@ def check_util_model_fit(
     r"""
     Evaluate the goodness of fit of the utility model.
     Args:
-        pref_model: GP mapping outcome to utility
+        util_model: GP mapping outcome to utility
         problem: TestProblem
         util_func: ground truth utility function (outcome -> utility)
         n_test: number of outcomes in test set; this gives rise to
@@ -331,8 +333,6 @@ def check_util_model_fit(
             preference that the model correctly predicts
     """
 
-    # TODO: kendall-tau rank correlation seems to be a better metric!
-
     # generate test set
     test_X, test_Y, test_util_vals, test_comps = gen_initial_real_data(
         n=n_test, 
@@ -342,12 +342,12 @@ def check_util_model_fit(
         batch_eval=batch_eval
     )
 
-    # run pref_model on test data, get predictions
+    # run util_model on test data, get predictions
     if projection is not None:
         test_L = torch.matmul(test_Y, torch.transpose(projection, -2, -1))
-        posterior_util_mean = pref_model.posterior(test_L).mean
+        posterior_util_mean = util_model.posterior(test_L).mean
     else:
-        posterior_util_mean = pref_model.posterior(test_Y).mean
+        posterior_util_mean = util_model.posterior(test_Y).mean
     posterior_util_mean_ = posterior_util_mean.reshape((n_test // 2, 2))
 
     if kendalltau:
@@ -387,7 +387,7 @@ def check_util_model_fit_wrapper(problem, util_func, models_dict, seed = 0, n_te
     for model_key, model in models_dict.items():
         print(f'checking fit of {model_key}')
         acc = check_util_model_fit(
-            pref_model = model,
+            util_model = model,
             problem = problem,
             util_func = util_func,
             n_test = n_test,
@@ -397,6 +397,68 @@ def check_util_model_fit_wrapper(problem, util_func, models_dict, seed = 0, n_te
         acc_dict[model_key] = acc
     
     return acc_dict
+
+
+# TODO: check overall model fit:
+# for a set of x, compute util_model(outcome_model(x)) and util_func(outcome_func(x))
+# do the rankings match? 
+
+def check_overall_fit(
+    outcome_model: Model,
+    util_model: Model, 
+    problem: torch.nn.Module, 
+    util_func: torch.nn.Module, 
+    n_test: int, 
+    batch_eval: bool,
+    return_util_vals: bool = False,
+    projection: Optional[Tensor] = None,
+    kendalltau: bool = True
+):
+    r"""
+    Check ... 
+    """
+
+    # generate test set
+    test_X, _, test_util_vals, test_comps = gen_initial_real_data(
+        n=n_test, 
+        problem=problem, 
+        util_func=util_func, 
+        comp_noise=0, 
+        batch_eval=batch_eval
+    )
+
+    # run outcome model then utility model on test_X
+    posterior_Y_mean = outcome_model.posterior(test_X).mean
+    posterior_util_mean = util_model.posterior(posterior_Y_mean).mean
+
+    # run util_model on test data, get predictions
+    posterior_util_mean_ = posterior_util_mean.reshape((n_test // 2, 2))
+
+    if kendalltau:
+        # compute kendall's tau rank correlation
+        pref_prediction_accuracy, p = stats.kendalltau(
+            posterior_util_mean.detach().numpy(), 
+            test_util_vals.detach().numpy()
+        )
+        print(f"Overall model accuracy Kendall's tau: {pref_prediction_accuracy}, p-value: {p}")
+    else:
+        # compute pref prediction accuracy for adjacent pairs
+        # the prediction for pair (i, i+1) is correct if
+        # item i is preferred to item i+1, so the row in test_comps is [i, i+1]
+        # and predicted utility of item i is higher than that of i+1
+        # vice versa: [i+1, i] and posterior_util(i) < posterior_util(i+1)
+        correct_test_rankings = (posterior_util_mean_[:,0] - posterior_util_mean_[:,1]) * (
+            test_comps[:, 0] - test_comps[:, 1]
+        )
+        pref_prediction_accuracy = sum(correct_test_rankings < 0) / len(
+            correct_test_rankings
+        )
+        print('overall model accuracy', pref_prediction_accuracy.item())
+
+    if return_util_vals:
+        return test_util_vals, posterior_util_mean, pref_prediction_accuracy.item()
+    else:
+        return pref_prediction_accuracy.item()
 
 
 def get_function_statistics(

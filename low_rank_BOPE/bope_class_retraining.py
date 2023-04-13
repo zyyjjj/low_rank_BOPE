@@ -29,9 +29,10 @@ from gpytorch.mlls.exact_marginal_log_likelihood import \
     ExactMarginalLogLikelihood
 from sklearn.linear_model import LinearRegression
 
-from low_rank_BOPE.src.diagnostics import (best_util_in_subspace,
+from low_rank_BOPE.src.diagnostics import (best_and_avg_util_in_subspace,
                                            check_outcome_model_fit,
                                            check_util_model_fit,
+                                           check_overall_fit,
                                            get_function_statistics,
                                            mc_max_outcome_error,
                                            mc_max_util_error)
@@ -115,7 +116,7 @@ class RetrainingBopeExperiment:
                 utility model, rather than true utility values 
             "random_linear_proj": random projection to a linear subspace; the 
                 projection is created independent of the data
-            "random subset": randomly select a subset of outcomes and fit smaller GPs
+            "random_subset": randomly select a subset of outcomes and fit smaller GPs
         """
 
         # self.attr_list stores default values, then overwrite with kwargs
@@ -162,7 +163,7 @@ class RetrainingBopeExperiment:
         self.transforms_covar_dict = {} # specify outcome and input transforms, covariance modules, by (method, pe_strategy)
         self.subspace_training_Y = {} # outcome data used for subspace learning, by (method, pe_strategy)
 
-        # log results
+        # save results
         self.PE_time_dict = {}
         self.PE_session_results = defaultdict(dict) # [method][pe_strategy]
         self.final_candidate_results = defaultdict(dict) # [method][pe_strategy]
@@ -305,7 +306,6 @@ class RetrainingBopeExperiment:
         elif method == "spca_est":
             pass
 
-
         elif method == "random_linear_proj":
             projection = generate_random_projection(
                 self.outcome_dim, self.initial_latent_dim, dtype=self.dtype
@@ -374,7 +374,7 @@ class RetrainingBopeExperiment:
         fit_gpytorch_mll(mll_outcome)        
         
         model_fitting_time = time.time() - start_time
-        rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000) # TODO: double check MSE metric we are using
+        rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000)
         self.subspace_diagnostics[(method, pe_strategy)]["model_fitting_time"].append(model_fitting_time)
         self.subspace_diagnostics[(method, pe_strategy)]["rel_mse"].append(rel_mse)
 
@@ -582,9 +582,20 @@ class RetrainingBopeExperiment:
 
         # check util model fit here
         util_model_acc = check_util_model_fit(
-            util_model, self.problem, self.util_func, 
+            util_model=util_model, 
+            problem=self.problem, util_func=self.util_func, 
             n_test=1000, batch_eval=True)
         within_result["util_model_acc"] = util_model_acc
+
+        overall_model_acc = check_overall_fit(
+            outcome_model=self.outcome_models_dict[(method, pe_strategy)],
+            pref_model=util_model,
+            problem=self.problem,
+            util_func=self.util_func,
+            n_test=1000,
+            batch_eval=True
+        )
+        within_result["overall_model_acc"] = overall_model_acc
 
         return within_result
 
@@ -650,7 +661,7 @@ class RetrainingBopeExperiment:
             n_test=n_test
         )
 
-        max_subspace_util = best_util_in_subspace(
+        max_subspace_util, avg_subspace_util = best_and_avg_util_in_subspace(
             problem=self.problem, 
             projection=projection, 
             util_func=self.util_func
@@ -659,6 +670,8 @@ class RetrainingBopeExperiment:
         self.subspace_diagnostics[(method, pe_strategy)]["max_util_error"].append(max_util_error)
         self.subspace_diagnostics[(method, pe_strategy)]["max_outcome_error"].append(max_outcome_error)
         self.subspace_diagnostics[(method, pe_strategy)]["best_util"].append(max_subspace_util)
+        self.subspace_diagnostics[(method, pe_strategy)]["avg_util"].append(avg_subspace_util)
+
 
     def generate_random_pref_data(self, method, pe_strategy, n):
 
@@ -770,7 +783,7 @@ class RetrainingBopeExperiment:
                         'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
                 torch.save(self.pref_data_dict, self.output_path +
                         'pref_data_trial=' + str(self.trial_idx) + '.th')
-                torch.save(self.subspace_diagnostics, self.output_path +
+                torch.save(dict(self.subspace_diagnostics), self.output_path +
                         'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
                 torch.save(self.util_postmean_landscape, self.output_path +
                         'util_postmean_trial=' + str(self.trial_idx) + '.th')
