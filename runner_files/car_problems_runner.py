@@ -38,8 +38,8 @@ if __name__ == "__main__":
             experiment_class = BopeExperiment
             suffix = ""
 
-        output_path = f"/home/yz685/low_rank_BOPE/experiments/cars/{problem_setup_name}_"\
-                        + str(args["noise_std"]) + suffix + "/"
+        output_path = f"/home/yz685/low_rank_BOPE/experiments/cars{suffix}/{problem_setup_name}_"\
+                        + str(args["noise_std"]) + "/"
 
         experiment = experiment_class(
             problem, 
@@ -47,9 +47,9 @@ if __name__ == "__main__":
             methods = args["methods"],
             pe_strategies = args["pe_strategies"],
             trial_idx = trial_idx,
-            # n_check_post_mean = args["n_check_post_mean"],
+            n_check_post_mean = args["n_check_post_mean"],
             output_path = output_path,
-            # pca_var_threshold = args["pca_var_threshold"]
-            **args # TODO: double check this works 
+            pca_var_threshold = args["pca_var_threshold"],
+            initial_experimentation_batch = args["init_exp_batch"]
         )
         experiment.run_BOPE_loop()
