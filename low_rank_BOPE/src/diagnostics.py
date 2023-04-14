@@ -16,6 +16,9 @@ from low_rank_BOPE.src.pref_learning_helpers import (gen_initial_real_data,
 sys.path.append('..')
 
 
+################################################################################
+# Diagnostics for subspace quality, subspace similarity, etc.
+
 def subspace_recovery_error(
     projection: Tensor, ground_truth_principal_axes: Tensor
 ) -> float:
@@ -243,7 +246,6 @@ def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
     Args:
         data: `num_datapoints x output_dim` tensor
         axes: `num_axes x output_dim` tensor where each row is a principal axis
-
     Returns:
         var_explained: `1 x num_axes` tensor with i-th entry being the fraction 
             of variance explained by the i-th supplied axis
@@ -261,6 +263,44 @@ def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
 
     return var_explained
 
+
+def compute_grassmannian(subspace1: Tensor, subspace2: Tensor):
+    r"""
+    Compute the Grassmannian distance between two linear subspaces with the 
+        same latent dimension. The smaller the distance, the more similar.
+    Refs: 
+        https://web.ma.utexas.edu/users/vandyke/notes/deep_learning_presentation/presentation.pdf
+        https://github.com/kristianeschenburg/submet/blob/master/submet/subspace.py
+
+    Args:
+        subspace1: `latent_dim x outcome_dim` tensor, rows span the subspace
+        subspace2: `latent_dim x outcome_dim` tensor, rows span the subspace
+    Returns:
+        S: `latent_dim` tensor, cosine of the principal angles
+        principal_angles: `latent_dim` tensor, principal angles
+        grassmannian: scalar, Grassmannian distance
+    """
+
+    subspace1_ = torch.transpose(subspace1, -2, -1)
+    subspace2_ = torch.transpose(subspace2, -2, -1)
+
+    q1, _ = torch.linalg.qr(subspace1_) # `outcome_dim x latent_dim`
+    q2, _ = torch.linalg.qr(subspace2_) # `outcome_dim x latent_dim`
+
+    _, S, _ = torch.linalg.svd(torch.transpose(q1, -2, -1) @ q2) # `latent_dim`
+
+    S = torch.clamp(S, min=-1, max=1) # avoid nans
+
+    principal_angles = torch.arccos(S)
+
+    # Grassmannian distance = square root of the sum of squares of the principal angles
+    grassmannian = torch.sqrt(torch.sum(torch.square(principal_angles))).item()
+
+    return S, principal_angles, grassmannian
+
+
+################################################################################
+# Diagnostics for model fit
 
 def check_outcome_model_fit(
     outcome_model: Model, 
@@ -399,10 +439,6 @@ def check_util_model_fit_wrapper(problem, util_func, models_dict, seed = 0, n_te
     return acc_dict
 
 
-# TODO: check overall model fit:
-# for a set of x, compute util_model(outcome_model(x)) and util_func(outcome_func(x))
-# do the rankings match? 
-
 def check_overall_fit(
     outcome_model: Model,
     util_model: Model, 
@@ -460,6 +496,9 @@ def check_overall_fit(
     else:
         return pref_prediction_accuracy.item()
 
+
+################################################################################
+# General diagnostic for understanding the landscape of a function / GP posterior
 
 def get_function_statistics(
     function: torch.nn.Module or Model, 
