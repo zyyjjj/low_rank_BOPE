@@ -608,7 +608,7 @@ class RetrainingBopeExperiment:
         return within_result
 
 
-    def generate_BO_candidate(self, method, pe_strategy, BO_iter):
+    def generate_BO_candidate(self, method, pe_strategy, BO_iter, best_so_far):
 
         util_model = self.fit_util_model(
             method, pe_strategy
@@ -643,10 +643,16 @@ class RetrainingBopeExperiment:
             f"{method}-{pe_strategy} qNEIUU candidate utility: {qneiuu_util:.5f}"
         )
 
+        if best_so_far is None:
+            best_so_far = qneiuu_util
+        else:
+            best_so_far = max(best_so_far, qneiuu_util)
+
         exp_result = {
             "candidate": new_cand_X,
             "acqf_val": acqf_val.item(),
             "candidate_util": qneiuu_util,
+            "best_util_so_far": best_so_far,
             "BO_iter": BO_iter,
             "method": method,
             "strategy": pe_strategy,
@@ -664,6 +670,8 @@ class RetrainingBopeExperiment:
             (cand_Xs, new_cand_X), dim=0)
         self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
             (cand_Ys, new_cand_Y), dim=0)
+
+        return best_so_far
 
 
     def compute_subspace_diagnostics(self, method, pe_strategy, n_test = 1000):
@@ -778,8 +786,10 @@ class RetrainingBopeExperiment:
         for pe_strategy in self.pe_strategies:
             print(f"===== Running 2nd experimentation stage using {method} with {pe_strategy} =====")
             self.final_candidate_results[method][pe_strategy] = []
+            best_so_far = None
             for iter in range(n_BO_iters):
-                self.generate_BO_candidate(method, pe_strategy, iter)
+                best_so_far = self.generate_BO_candidate(
+                    method, pe_strategy, iter, best_so_far)
 
                 # TODO: update projection (optional), update outcome model
                 # self.compute_projections(method, pe_strategy)
