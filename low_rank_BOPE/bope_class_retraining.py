@@ -31,8 +31,8 @@ from sklearn.linear_model import LinearRegression
 
 from low_rank_BOPE.src.diagnostics import (best_and_avg_util_in_subspace,
                                            check_outcome_model_fit,
-                                           check_util_model_fit,
                                            check_overall_fit,
+                                           check_util_model_fit,
                                            get_function_statistics,
                                            mc_max_outcome_error,
                                            mc_max_util_error)
@@ -57,6 +57,7 @@ class RetrainingBopeExperiment:
         "initial_experimentation_batch": 16,
         "n_check_post_mean": 20,
         "every_n_comps": 3,
+        "n_BO_iters": 10,
         "verbose": True,
         "dtype": torch.double,
         "num_restarts": 20,
@@ -162,6 +163,7 @@ class RetrainingBopeExperiment:
         self.projections_dict = {} # stores projections to subspaces, by (method, pe_strategy)
         self.transforms_covar_dict = {} # specify outcome and input transforms, covariance modules, by (method, pe_strategy)
         self.subspace_training_Y = {} # outcome data used for subspace learning, by (method, pe_strategy)
+        self.BO_data_dict = defaultdict(dict) # stores BO candidate designs and outcome values, by (method, pe_strategy)
 
         # save results
         self.PE_time_dict = {}
@@ -194,27 +196,27 @@ class RetrainingBopeExperiment:
             comps: `n/2 x 2` tensor of pairwise comparisons 
         """
 
-        self.X = (
+        self.initial_X = (
             draw_sobol_samples(bounds=self.problem.bounds, n=1, q=n, seed=self.trial_idx)
             .squeeze(0)
             .to(torch.double)
             .detach()
         )
-        self.Y = self.problem(self.X).detach()
+        self.initial_Y = self.problem(self.initial_X).detach()
 
         if compute_util:
-            util_vals = self.util_func(self.Y).detach()
+            util_vals = self.util_func(self.initial_Y).detach()
             comps = gen_comps(util_vals)
 
             # put into pref_data_dict for different (method, pe_strategy) tuples
             for method in self.methods:
                 for pe_strategy in self.pe_strategies:
                     self.pref_data_dict[(method, pe_strategy)] = {
-                        "Y": self.Y,
+                        "Y": self.initial_Y,
                         "util_vals": util_vals,
                         "comps": comps
                     }
-                    self.subspace_training_Y[(method, pe_strategy)] = self.Y
+                    self.subspace_training_Y[(method, pe_strategy)] = self.initial_Y
 
     def compute_projections(self, method, pe_strategy):
         
@@ -355,17 +357,23 @@ class RetrainingBopeExperiment:
         r"""Fit outcome model based on specified method.
         Args:
             method: string specifying the statistical model
-            pe_strategy
-        
+            pe_strategy: string specifying the PE strategy
         """
-
-        print(f"Fitting outcome model using {method} and {pe_strategy}")
 
         start_time = time.time()
 
+        # fetch new (x,y) data from self.BO_data_dict 
+        # and concatenate with self.initial_X, self.initial_Y
+        new_X = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
+        new_Y = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
+        train_X = torch.cat([self.initial_X, new_X], dim=0)
+        train_Y = torch.cat([self.initial_Y, new_Y], dim=0)
+        print(f"Fitting outcome model using {method} and {pe_strategy}")
+        print(f"train_X.shape: {train_X.shape}", f"train_Y.shape: {train_Y.shape}")
+        
         outcome_model = SingleTaskGP(
-            train_X=self.X, 
-            train_Y=self.Y, 
+            train_X=train_X, 
+            train_Y=train_Y, 
             outcome_transform = copy.deepcopy(
                 self.transforms_covar_dict[(method, pe_strategy)]["outcome_tf"]
             )
@@ -538,7 +546,7 @@ class RetrainingBopeExperiment:
         pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
 
         # find experimental candidate(s) that maximize the posterior mean utility
-        post_mean_cand_X = gen_exp_cand(
+        post_mean_cand_X, _ = gen_exp_cand(
             outcome_model=self.outcome_models_dict[(method, pe_strategy)],
             objective=pref_obj,
             problem=self.problem,
@@ -589,7 +597,7 @@ class RetrainingBopeExperiment:
 
         overall_model_acc = check_overall_fit(
             outcome_model=self.outcome_models_dict[(method, pe_strategy)],
-            pref_model=util_model,
+            util_model=util_model,
             problem=self.problem,
             util_func=self.util_func,
             n_test=1000,
@@ -599,7 +607,8 @@ class RetrainingBopeExperiment:
 
         return within_result
 
-    def generate_final_candidate(self, method, pe_strategy):
+
+    def generate_BO_candidate(self, method, pe_strategy, BO_iter):
 
         util_model = self.fit_util_model(
             method, pe_strategy
@@ -612,25 +621,33 @@ class RetrainingBopeExperiment:
         sampler = SobolQMCNormalSampler(1)
         pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
 
-        # find experimental candidate(s) that maximize the posterior mean utility
-        cand_X = gen_exp_cand(
+        cand_Xs = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
+        cand_Ys = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
+        train_X = torch.cat([self.initial_X, cand_Xs], dim=0)
+        print(f"cand_Xs shape: {cand_Xs.shape}", f"cand_Ys shape: {cand_Ys.shape}")
+
+        # find experimental candidate(s) that maximize the noisy EI acqf
+        new_cand_X, acqf_val = gen_exp_cand(
             outcome_model=self.outcome_models_dict[(method, pe_strategy)],
             objective=pref_obj,
             problem=self.problem,
             q=1,
             acqf_name="qNEI",
-            X=self.X,
+            X=train_X,
             seed=self.trial_idx
         )
+        new_cand_Y = self.problem(new_cand_X).detach()
 
-        qneiuu_util = self.util_func(self.problem.evaluate_true(cand_X)).item()
+        qneiuu_util = self.util_func(self.problem.evaluate_true(new_cand_X)).item()
         print(
             f"{method}-{pe_strategy} qNEIUU candidate utility: {qneiuu_util:.5f}"
         )
 
         exp_result = {
-            "candidate": cand_X,
+            "candidate": new_cand_X,
+            "acqf_val": acqf_val.item(),
             "candidate_util": qneiuu_util,
+            "BO_iter": BO_iter,
             "method": method,
             "strategy": pe_strategy,
             "run_id": self.trial_idx,
@@ -641,7 +658,13 @@ class RetrainingBopeExperiment:
         # log the true optimal utility computed in __init__()
         exp_result["true_opt"] = self.true_opt
 
-        self.final_candidate_results[method][pe_strategy] = exp_result
+        self.final_candidate_results[method][pe_strategy].append(exp_result)
+
+        self.BO_data_dict[(method, pe_strategy)]["X"] = torch.cat(
+            (cand_Xs, new_cand_X), dim=0)
+        self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
+            (cand_Ys, new_cand_Y), dim=0)
+
 
     def compute_subspace_diagnostics(self, method, pe_strategy, n_test = 1000):
         # log diagnostics for recovering outcome and utility from the subspace
@@ -751,10 +774,17 @@ class RetrainingBopeExperiment:
             self.PE_time_dict[(method, pe_strategy)] = PE_time # will be logged later
 
 
-    def run_second_experimentation_stage(self, method):
+    def run_second_experimentation_stage(self, method, n_BO_iters):
         for pe_strategy in self.pe_strategies:
-            print(f"===== Generating final candidate using {method} with {pe_strategy} =====")
-            self.generate_final_candidate(method, pe_strategy)
+            print(f"===== Running 2nd experimentation stage using {method} with {pe_strategy} =====")
+            self.final_candidate_results[method][pe_strategy] = []
+            for iter in range(n_BO_iters):
+                self.generate_BO_candidate(method, pe_strategy, iter)
+
+                # TODO: update projection (optional), update outcome model
+                # self.compute_projections(method, pe_strategy)
+                self.fit_outcome_model(method, pe_strategy)
+
 
 
 # ======== BOPE loop ========
@@ -775,7 +805,7 @@ class RetrainingBopeExperiment:
                 print(f"============= Running {method} =============")
                 self.run_first_experimentation_stage(method)
                 self.run_PE_stage(method)
-                self.run_second_experimentation_stage(method)
+                self.run_second_experimentation_stage(method, self.n_BO_iters)
 
                 torch.save(self.PE_session_results, self.output_path +
                         'PE_session_results_trial=' + str(self.trial_idx) + '.th')
