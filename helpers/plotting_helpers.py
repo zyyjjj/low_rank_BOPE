@@ -1,18 +1,20 @@
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
-from typing import Optional, List
-import pandas as pd
-import numpy as np
 import os
+from typing import List, Optional
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
+from matplotlib.ticker import MaxNLocator
 
 # ===== Plotting settings =====
-# TODO: these need to be updated once we add new methods
 
 colors_dict = {
     "pca": "tab:red", 
-    "uwpca": "tab:red",
-    "uwpca_rt": "tab:pink",
-    "pcr": "tab:cyan", 
+    "pca_all_rt": "tab:pink",
+    "pca_eubo_rt": "tab:cyan",
+    "pca_postmax_rt": "tab:orange",
+    # "pcr": "tab:cyan", 
     "st": "tab:blue", 
     "true_proj": "tab:pink",
     "random_linear_proj": "tab:green", 
@@ -29,8 +31,9 @@ marker_dict = {"$EUBO-\zeta$": "o", "True Utility": "s", "Random-f": "^"}
 labels_dict = {
     "st": "Indep", 
     "pca": "PCA", 
-    "uwpca": "unweighted PCA",
-    "uwpca_rt": "unweighted PCA retraining",
+    "pca_all_rt": "PCA retraining using all",
+    "pca_eubo_rt": "PCA retraining with EUBO winners",
+    "pca_postmax_rt": "PCA retraining with posterior max",
     "pcr": "PCR", 
     "random_linear_proj": "Rand-linear-proj", 
     "random_subset": "Rand-subset", 
@@ -53,17 +56,25 @@ x_jitter_dict = {
     "uwpca_rt": 0.2,
 }
 
+#################################################################################
+#################################################################################
 
 # ===== Plotting results in PE stage =====
 
 # "within_session_results" -- results logged during PE stage
 
+performance_over_comps_labels_dict = {
+    "util": "True utility of estimated \n utility-maximizing design",
+    "util_model_acc": "Rank accuracy of the utility model",
+    "overall_model_acc": "Overall accuracy of outcome and utility models",
+}
+    
 def plot_performance_over_comps_single(
     outputs: dict,
-    problem_type: str,
     problem: str,
     methods: List[str],
     pe_strategy: str, 
+    problem_type: Optional[str] = None,
     metric: str = "util",
     shade: bool = True,
     num_plot_datapoints: Optional[int] = None,
@@ -77,11 +88,12 @@ def plot_performance_over_comps_single(
 
     Args:
         outputs: big nested dictionary storing loaded experiment outputs
-        problem_type: one of {"synthetic", "shapes", "cars",}
-            this helps the function decide how to parse input/outcome dims from the problem name
         problem: problem name
         methods: list of methods to show
         pe_strategy: single PE strategy to plot
+        problem_type: Optional, one of {"synthetic", "shapes", "cars",}
+            this helps the function decide how to parse input/outcome dims from the problem name,
+            though one could pass in `input_dim` and `outcome_dim` directly
         metric: the quantity to plot, one of {"util", "util_model_acc"}
         shade: whether to plot error bars as shaded regions or not
         num_plot_datapoints: number of checkpoints to show in the plot
@@ -92,12 +104,21 @@ def plot_performance_over_comps_single(
                           figsize=kwargs.get("figsize",(6, 4))
                           )
     
-    if problem_type == "synthetic":
-        _, rank, _, input_dim, outcome_dim, alpha, noise = problem.split('_')
-    elif problem_type == "shapes":
-        input_dim = 4
-        num_pixels, _ = problem.split("by")
-        outcome_dim = int(num_pixels) ** 2
+
+    input_dim = kwargs.get("input_dim", None)
+    outcome_dim = kwargs.get("outcome_dim", None)
+    if input_dim is None or outcome_dim is None:
+        if problem_type == "synthetic":
+            _, rank, _, input_dim, outcome_dim, alpha, noise = problem.split('_')
+        elif problem_type == "shapes":
+            input_dim = 4
+            num_pixels, _ = problem.split("by")
+            outcome_dim = int(num_pixels) ** 2
+        elif problem_type == "music":
+            input_dim = 1
+            outcome_dim = 441 # TODO: don't hardcode
+        else:
+            raise RuntimeError("Input and outcome dims not specified!")
     
     within_session_results = [res 
                               for i in outputs[problem]['within_session_results'].keys() 
@@ -106,7 +127,6 @@ def plot_performance_over_comps_single(
     within_df = pd.DataFrame(within_session_results)
 
     within_df["pe_strategy"] = within_df["pe_strategy"].str.replace("EUBO-zeta", r"$EUBO-\\zeta$")
-    # print(within_df.groupby(["n_comps", "method", "pe_strategy"]).count())
 
     within_df = (
         within_df.groupby(["n_comps", "method", "pe_strategy"])
@@ -122,9 +142,8 @@ def plot_performance_over_comps_single(
                 if num_plot_datapoints is None:
                     num_plot_datapoints = len(group["n_comps"].values)
 
-                jitter = x_jitter_dict[group["method"].values[0]]
-                x_jittered = [x_ + jitter for x_ in group["n_comps"].values]
-                print(name[0], name[1], 'n_comps: ', group["n_comps"].values)
+                
+                # print(name[0], name[1], 'n_comps: ', group["n_comps"].values)
 
                 if shade: 
                     axs.plot(
@@ -145,6 +164,9 @@ def plot_performance_over_comps_single(
                         color=colors_dict[name[0]],
                     )
                 else:
+                    jitter = x_jitter_dict[group["method"].values[0]]
+                    x_jittered = [x_ + jitter for x_ in group["n_comps"].values]
+                    
                     axs.errorbar(
                         x=x_jittered[:num_plot_datapoints],
                         y=group["mean"].values[:num_plot_datapoints],
@@ -156,19 +178,18 @@ def plot_performance_over_comps_single(
                         color=colors_dict[name[0]],
                     )
 
-                axs.set_xlabel("Number of comparisons")
-                axs.set_title(
-                    f"{problem}\n d={input_dim}, k={outcome_dim}", 
-                    fontsize=kwargs.get("title_fontsize", 12.5)
-                )
-                axs.xaxis.set_major_locator(MaxNLocator(integer=True))
+    axs.set_xlabel("Number of comparisons")
+    axs.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    if metric == "util":
-        ylabel = "True utility of estimated \n utility-maximizing design"
-    elif metric == "util_model_acc":
-        ylabel = "Rank accuracy of the utility model"
+    title = kwargs.get("title", f"{problem}\n d={input_dim}, k={outcome_dim}")
+    axs.set_title(
+        title, 
+        fontsize=kwargs.get("title_fontsize", 12.5)
+    )
+    
+    ylabel = kwargs.get("ylabel", performance_over_comps_labels_dict[metric])
+    axs.set_ylabel(ylabel, fontsize=kwargs.get("ylabel_fontsize", 12))
 
-    axs.set_ylabel(ylabel)
     axs.legend(
         bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
         loc=kwargs.get("legend_loc", "lower left"), 
@@ -182,9 +203,10 @@ def plot_performance_over_comps_single(
         
         f.savefig(save_path + save_file_name, bbox_inches = "tight")
 
+
 def plot_performance_over_comps_multiple(
     outputs: dict,
-    problem_type: str,
+    problem_type: str, # TODO: enable passing in a list of input_dim and outcome_dim
     problem_l: List[str], 
     methods: List[str],
     pe_strategy: str, 
@@ -216,10 +238,17 @@ def plot_performance_over_comps_multiple(
 
         if problem_type == "synthetic":
             _, rank, _, input_dim, outcome_dim, alpha, noise = problem.split('_')
+            problem_name = problem # TODO: come back to this
         elif problem_type == "shapes":
             input_dim = 4
             num_pixels, _ = problem.split("by")
             outcome_dim = int(num_pixels) ** 2
+            problem_name = problem # TODO: come back to this
+        elif problem_type == "cars":
+            problem_name, iodim, util_type, outcome_dim, _ = problem.split("_")
+            input_dim = int(iodim[0])
+            outcome_dim = int(outcome_dim)
+            problem_name = problem_name + "_" + util_type
         
         within_session_results = [res 
                                 for i in outputs[problem]['within_session_results'].keys() 
@@ -242,9 +271,7 @@ def plot_performance_over_comps_multiple(
                     if num_plot_datapoints is None:
                         num_plot_datapoints = len(group["n_comps"].values)
 
-                    jitter = x_jitter_dict[group["method"].values[0]]
-                    x_jittered = [x_ + jitter for x_ in group["n_comps"].values]
-
+                    
                     if shade:
                         axs[j].plot(
                             # x_jittered[:num_plot_datapoints],
@@ -263,6 +290,8 @@ def plot_performance_over_comps_multiple(
                         )
 
                     else:
+                        jitter = x_jitter_dict[group["method"].values[0]]
+                        x_jittered = [x_ + jitter for x_ in group["n_comps"].values]
                         axs[j].errorbar(
                             x=x_jittered[:num_plot_datapoints],
                             y=group["mean"].values[:num_plot_datapoints],
@@ -279,19 +308,12 @@ def plot_performance_over_comps_multiple(
                         fontsize=kwargs.get("xlabel_fontsize", 12)
                     )
                     axs[j].set_title(
-                        f"{problem}\n d={input_dim}, k={outcome_dim}", 
+                        f"{problem_name}\n d={input_dim}, k={outcome_dim}", 
                         fontsize=kwargs.get("title_fontsize", 12.5)
                     )
+    ylabel = kwargs.get("ylabel", performance_over_comps_labels_dict[metric])
+    axs[0].set_ylabel(ylabel, fontsize=kwargs.get("ylabel_fontsize", 12))
 
-    if metric == "util":
-        ylabel = "True utility of estimated \n utility-maximizing design"
-    elif metric == "util_model_acc":
-        ylabel = "Rank accuracy of the utility model"
-
-    axs[0].set_ylabel(
-        ylabel, 
-        fontsize=kwargs.get("ylabel_fontsize", 12)
-    )
     axs[0].legend(
         bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.4)), 
         loc=kwargs.get("legend_loc", "lower left"), 
@@ -305,8 +327,28 @@ def plot_performance_over_comps_multiple(
         
         f.savefig(save_path + save_file_name, bbox_inches = "tight")
 
+#################################################################################
+#################################################################################
+# ===== "subspace_diagnostics" -- diagnostics of subspace quality logged during PE stage
 
-# "subspace_diagnostics" -- diagnostics of subspace quality logged during PE stage
+def tensor_list_to_float_list(tensor_list):
+    res = []
+    for item in tensor_list:
+        res.append(item.item())
+    
+    return res
+
+subspace_diagnostics_labels_dict = {
+    "best_util": "Best utility in subspace",
+    "avg_util": "Average utility in subspace",
+    "model_fitting_time": "Time to fit outcome model",
+    "rel_mse": "MSE of outcome model",
+    "max_util_error": "Max util error in subspace",
+    "max_outcome_error": "Max outcome error in subspace",
+    "latent_dim": "subspace dimension"
+}
+
+
 def plot_subspace_diagnostics_single(
     outputs: dict,
     problem: str,
@@ -334,11 +376,30 @@ def plot_subspace_diagnostics_single(
     """
 
     available_trials = list(outputs[problem]["subspace_diagnostics"].keys())
-    num_retrain = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("uwpca_rt", pe_strategy)][metric])
+    num_retrain = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("pca_all_rt", pe_strategy)][metric])
+
+    print(available_trials)
 
     for method in methods:
-        # a nested list where each sub-list is a record of metric over retraining for one trial
-        data = [outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][metric] for trial_idx in available_trials]
+        # a nested list where each sub-list is a record of metric over retraining for one trial     
+
+        data = []
+
+        for trial_idx in available_trials:
+            try:
+                tmp = outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][metric]
+                if torch.is_tensor(tmp[0]):
+                    data.append(tensor_list_to_float_list(tmp))
+                else:
+                    data.append(tmp)
+            except:
+                continue
+
+        # data = [outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][metric] for trial_idx in available_trials]
+        
+        # if torch.is_tensor(outputs[problem]["subspace_diagnostics"][available_trials[0]][(method, pe_strategy)][metric][0]):
+        #     data_tmp = [tensor_list_to_float_list(data[t]) for t in range(len(data))]
+        #     data = data_tmp
 
         if len(data[0]) == 1:
             data_np = np.repeat(data, num_retrain, axis = 1)
@@ -371,17 +432,12 @@ def plot_subspace_diagnostics_single(
 
     plt.legend(loc=kwargs.get("legend_loc", "lower left"))
     plt.xlabel("Number of times retrained")
-    
-    if metric == "best_util":
-        y_label = "Best utility in subspace"
-    elif metric == "model_fitting_time":
-        y_label = "Time to fit outcome model"
-    elif metric == "rel_mse":
-        y_label = "MSE of outcome model"
-    # TODO: "max_util_error", "max_outcome_error"
 
+    y_label = kwargs.get("y_label", subspace_diagnostics_labels_dict[metric])
     plt.ylabel(y_label)
-    plt.title(f"{problem},\n {y_label} over retraining")
+
+    title = kwargs.get("title", f"{problem},\n {y_label} over retraining")
+    plt.title(title)
 
     if save_path is not None:
         if not os.path.exists(save_path):
@@ -392,120 +448,140 @@ def plot_subspace_diagnostics_single(
 
 # TODO: add plot_subspace_diagnostics_multiple()
 
+#################################################################################
+#################################################################################
 
 # ===== Plotting final results =====
-
 # "exp_candidate_results" -- results logged in the 2nd experimentation stage
-def plot_result_metric_multiple(
+
+BO_results_labels_dict = {
+    "candidate_util": "True utility of BO candidate",
+    "acqf_val": "qNEIUU acquisition function value",
+    "util_model_acc": "Utility model accuracy",
+}
+
+def plot_BO_results_single(
     outputs: dict,
-    problem_type: str,
-    problem_l: List[str], 
-    metric: str, 
-    ylabel_text: str,
-    pe_strategies = ["$EUBO-\zeta$"],
+    problem: str,
+    methods: List[str],
+    pe_strategy: str, 
+    problem_type: Optional[str] = None,
+    metric: str = "candidate_util",
+    shade: bool = True,
+    num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
     **kwargs
 ):
-
     r"""
-    Create multiple side-by-side plots of result metrics.
-    Each plot is for a different problem (specified in problem_l),
-    with one pe strategy and multiple methods.
+    Create a plot of BO performance in the second experimentation stage 
+    for one problem, one pe strategy and multiple methods.
 
     Args:
         outputs: big nested dictionary storing loaded experiment outputs
-        problem_type: one of {"synthetic", "shapes", "cars",}
-            this helps the function decide how to parse input/outcome dims from the problem name
-        problem_l: list of problem names
-        metric: string specifying the metric to plot
-            one of {"candidate_util", "PE_time", "util_model_acc"}
-        ylabel_text: English text to put on the y label
-            "candidate_util": "Utility of final candidate"
-            "PE_time": "Time consumed in preference exploration"
-            "util_model_acc": "Final utility model accuracy"
-        pe_strategies: list of PE strategies (usually I'd just put one)
+        problem: problem name
+        methods: list of methods to show
+        pe_strategy: single PE strategy to plot
+        problem_type: Optional, one of {"synthetic", "shapes", "cars",}
+            this helps the function decide how to parse input/outcome dims from the problem name,
+            though one could pass in `input_dim` and `outcome_dim` directly
+        metric: the quantity to plot, one of {"candidate_util", "acqf_val", "util_model_acc"}
+        shade: whether to plot error bars as shaded regions or not
+        num_plot_datapoints: number of BO iterations to plot
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
     """
 
-    f, axs = plt.subplots(
-        1, 
-        len(problem_l), 
-        figsize=kwargs.get("figsize", (10,3))
-    )
+    f, axs = plt.subplots(1, 1, figsize=kwargs.get("figsize",(6, 4)))
 
-    for i in range(len(problem_l)):
-        problem = problem_l[i]
-
+    input_dim = kwargs.get("input_dim", None)
+    outcome_dim = kwargs.get("outcome_dim", None)
+    if input_dim is None or outcome_dim is None:
         if problem_type == "synthetic":
-            _, rank, _, input_dim, outcome_dim, alpha, noise_std = problem.split('_')
+            _, rank, _, input_dim, outcome_dim, alpha, noise = problem.split('_')
         elif problem_type == "shapes":
             input_dim = 4
             num_pixels, _ = problem.split("by")
             outcome_dim = int(num_pixels) ** 2
+        elif problem_type == "music":
+            input_dim = 1
+            outcome_dim = 441 # TODO: don't hardcode
+        else:
+            raise RuntimeError("Input and outcome dims not specified!")
+    
+    BO_results = [res 
+                    for i in outputs[problem]['exp_candidate_results'].keys() 
+                    for res in outputs[problem]["exp_candidate_results"][i]]
 
-        available_trials = outputs[problem]["exp_candidate_results"].keys()
+    BO_results_df = pd.DataFrame(BO_results)
 
-        exp_candidate_results = [res for i in available_trials for res in outputs[problem]["exp_candidate_results"][i]]
+    BO_results_df["strategy"] = BO_results_df["strategy"].str.replace("EUBO-zeta", r"$EUBO-\\zeta$")
 
-        exp_candidate_results_random = []
-        exp_candidate_results_nonrandom = []
+    BO_results_df = (
+        BO_results_df.groupby(["BO_iter", "method", "strategy"])
+        .agg({metric: ["mean", "sem"]})
+        .droplevel(level=0, axis=1)
+        .reset_index()
+    )
 
-        for res in exp_candidate_results:
-            if res["strategy"] == "Random Experiment":
-                exp_candidate_results_random.append(res)
-            else:
-                exp_candidate_results_nonrandom.append(res)
+    for name, group in BO_results_df.groupby(["method", "strategy"]):
+        if name[1] == pe_strategy:
+            if name[0] in methods:
 
-        # Prepare the 2nd experimentation batch data for plot
-        exp_df = pd.DataFrame(exp_candidate_results_nonrandom)
-        exp_df["strategy"] = exp_df["strategy"].str.replace("EUBO-zeta", r"$EUBO-\\zeta$")
-        exp_df["strategy"] = pd.Categorical(
-            exp_df["strategy"],
-            ["True Utility", "$EUBO-\zeta$", "Random-f"],
-        )
+                if num_plot_datapoints is None:
+                    num_plot_datapoints = len(group["BO_iter"].values)
 
-        exp_df = (
-            exp_df.groupby(["method", "strategy"], sort=False)
-            .agg({metric: ["mean", "sem"]}) # the quantity we plot is specified in `metric`
-            .droplevel(level=0, axis=1)
-            .reset_index()
-        )
-
-        for name, group in exp_df.groupby(["method", "strategy"]):
-
-            if group["method"].values[0] == 'mtgp':
-                continue
-
-            if group["strategy"].values[0] in pe_strategies:
-
-                if not group["mean"].isna().all():
-                    axs[i].errorbar(
-                        x=[group["method"].values[0] + "_" + group["strategy"].values[0]],
-                        y=group["mean"],
-                        yerr=kwargs.get("yerr_sems", 1.96) * group["sem"],
-                        fmt=marker_dict[name[1]],
-                        markersize=8,
-                        label=labels_dict[group["method"].values[0]] + "_" + group["strategy"].values[0],
-                        linewidth=1.5,
-                        capsize=3,
+                if shade: 
+                    axs.plot(
+                        # x_jittered[:num_plot_datapoints],
+                        group["BO_iter"].values,
+                        group["mean"].values[:num_plot_datapoints],
+                        label=labels_dict[name[0]],
                         color=colors_dict[name[0]],
                     )
+                    axs.fill_between(
+                        # x=x_jittered[:num_plot_datapoints],
+                        group["BO_iter"].values,
+                        y1=group["mean"].values[:num_plot_datapoints] \
+                            - group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                        y2=group["mean"].values[:num_plot_datapoints] \
+                            + group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                        alpha=kwargs.get("alpha", 0.2),
+                        color=colors_dict[name[0]],
+                    )
+                else:
+                    jitter = x_jitter_dict[group["method"].values[0]]
+                    x_jittered = [x_ + jitter for x_ in group["BO_iters"].values]
+                    
+                    axs.errorbar(
+                        x=x_jittered[:num_plot_datapoints],
+                        y=group["mean"].values[:num_plot_datapoints],
+                        yerr=group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                        label=labels_dict[name[0]],
+                        linewidth=1.5,
+                        capsize=3,
+                        alpha=0.6,
+                        color=colors_dict[name[0]],
+                    )
+    
+    title = kwargs.get("title", f"{problem}\n d={input_dim}, k={outcome_dim}")
+    axs.set_title(
+        title,
+        fontsize=kwargs.get("title_fontsize", 12.5)
+    )
+   
+    axs.set_xlabel("Number of BO iterations")
+    axs.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-        axs[i].set_title(
-            f"{problem}\n d={input_dim}, k={outcome_dim}", 
-            fontsize=kwargs.get("title_fontsize", 12.5)
-        )
-        axs[i].set_xticks([])
+    ylabel = kwargs.get("ylabel", BO_results_labels_dict[metric])
+    axs.set_ylabel(ylabel)
 
-    axs[0].legend(
-        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.1, -0.2)), 
+    axs.legend(
+        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
         loc=kwargs.get("legend_loc", "lower left"), 
         ncol=kwargs.get("legend_ncols", 5), 
         fontsize=kwargs.get("legend_fontsize", 12)
     )
-    axs[0].set_ylabel(ylabel_text)
 
     if save_path is not None:
         if not os.path.exists(save_path):
@@ -513,3 +589,126 @@ def plot_result_metric_multiple(
         
         f.savefig(save_path + save_file_name, bbox_inches = "tight")
 
+
+def plot_BO_results_multiple(
+    outputs: dict,
+    problem_type: str,  # TODO: enable passing in a list of input_dim and outcome_dim
+    problem_l: List[str],
+    methods: List[str],
+    pe_strategy: str, 
+    metric: str = "candidate_util",
+    shade: bool = True,
+    num_plot_datapoints: Optional[int] = None,
+    save_path: Optional[str] = None,
+    save_file_name: Optional[str] = None,
+    **kwargs
+):
+    r"""
+    Create multiple side-by-side plots of BO performance in the second experimentation stage.
+    Each plot is for a different problem (specified in problem_l),
+    with one pe strategy and multiple methods.
+
+    Args:
+        problem_l: list of problem names
+        All the others are the same as plot_BO_results_single()
+    """
+
+    f, axs = plt.subplots(1, 1, figsize=kwargs.get("figsize",(10,3)))
+
+    for j in range(len(problem_l)):
+
+        problem = problem_l[j]
+
+        input_dim = kwargs.get("input_dim", None)
+        outcome_dim = kwargs.get("outcome_dim", None)
+        if input_dim is None or outcome_dim is None:
+            if problem_type == "synthetic":
+                _, rank, _, input_dim, outcome_dim, alpha, noise = problem.split('_')
+            elif problem_type == "shapes":
+                input_dim = 4
+                num_pixels, _ = problem.split("by")
+                outcome_dim = int(num_pixels) ** 2
+            elif problem_type == "music":
+                input_dim = 1
+                outcome_dim = 441 # TODO: don't hardcode
+            else:
+                raise RuntimeError("Input and outcome dims not specified!")
+        
+        BO_results = [res 
+                        for i in outputs[problem]['exp_candidate_results'].keys() 
+                        for res in outputs[problem]["exp_candidate_results"][i]]
+
+        BO_results_df = pd.DataFrame(BO_results)
+
+        BO_results_df["strategy"] = BO_results_df["strategy"].str.replace("EUBO-zeta", r"$EUBO-\\zeta$")
+
+        BO_results_df = (
+            BO_results_df.groupby(["BO_iter", "method", "strategy"])
+            .agg({metric: ["mean", "sem"]})
+            .droplevel(level=0, axis=1)
+            .reset_index()
+        )
+
+        for name, group in BO_results_df.groupby(["method", "strategy"]):
+            if name[1] == pe_strategy:
+                if name[0] in methods:
+
+                    if num_plot_datapoints is None:
+                        num_plot_datapoints = len(group["BO_iter"].values)
+
+                    if shade: 
+                        axs.plot(
+                            # x_jittered[:num_plot_datapoints],
+                            group["BO_iter"].values,
+                            group["mean"].values[:num_plot_datapoints],
+                            label=labels_dict[name[0]],
+                            color=colors_dict[name[0]],
+                        )
+                        axs.fill_between(
+                            # x=x_jittered[:num_plot_datapoints],
+                            group["BO_iter"].values,
+                            y1=group["mean"].values[:num_plot_datapoints] \
+                                - group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                            y2=group["mean"].values[:num_plot_datapoints] \
+                                + group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                            alpha=kwargs.get("alpha", 0.2),
+                            color=colors_dict[name[0]],
+                        )
+                    else:
+                        jitter = x_jitter_dict[group["method"].values[0]]
+                        x_jittered = [x_ + jitter for x_ in group["BO_iters"].values]
+                        
+                        axs.errorbar(
+                            x=x_jittered[:num_plot_datapoints],
+                            y=group["mean"].values[:num_plot_datapoints],
+                            yerr=group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
+                            label=labels_dict[name[0]],
+                            linewidth=1.5,
+                            capsize=3,
+                            alpha=0.6,
+                            color=colors_dict[name[0]],
+                        )
+        
+                    axs.set_title(
+                        f"{problem}\n d={input_dim}, k={outcome_dim}",
+                        fontsize=kwargs.get("title_fontsize", 12.5)
+                    )
+                
+                    axs.set_xlabel("Number of BO iterations")
+                    axs.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    ylabel = kwargs.get("ylabel", BO_results_labels_dict[metric])
+    axs[0].set_ylabel(ylabel)
+
+    axs[0].legend(
+        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
+        loc=kwargs.get("legend_loc", "lower left"), 
+        ncol=kwargs.get("legend_ncols", 5), 
+        fontsize=kwargs.get("legend_fontsize", 12)
+    )
+
+    if save_path is not None:
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        
+        f.savefig(save_path + save_file_name, bbox_inches = "tight")
