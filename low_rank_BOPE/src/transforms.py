@@ -687,7 +687,7 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs)
         # set weights for the selected indices to 1, others to 0
         ranks = torch.argsort(torch.argsort(util_vals))
         indices = torch.where(ranks >= bottom_num_points)
-        weights = torch.zeros((len(util_vals), 1))
+        weights = torch.zeros(len(util_vals))
         weights[indices] = 1
         
     # elif weights_type == "power":
@@ -730,6 +730,9 @@ def fit_pca(
             
         # remove the entries with weight=0 # TODO: check this
         valid = torch.nonzero(weights.squeeze(1)).squeeze(1)
+        print("valid: ", valid)
+
+        print("valid shape: ", valid.shape, "weights shape: ", weights.shape, "train_Y shape: ", train_Y.shape)
         weighted_mean = (train_Y[valid] * weights[valid]).sum(dim=0) / weights[valid].sum(0)
         train_Y_centered = weights[valid] * (train_Y[valid] - weighted_mean)
 

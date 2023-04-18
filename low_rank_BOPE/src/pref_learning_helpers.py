@@ -348,7 +348,7 @@ def gen_exp_cand(
         raise RuntimeError("Unknown acquisition function name!")
 
     # optimize the acquisition function
-    candidates, _ = optimize_acqf(
+    candidates, acqf_val = optimize_acqf(
         acq_function=acq_func,
         q=q,
         bounds=problem.bounds,
@@ -357,7 +357,7 @@ def gen_exp_cand(
         options={"batch_limit": batch_limit, "seed": seed},
         sequential=True,
     )
-    return candidates
+    return candidates, acqf_val
 
 
 class ModifiedFixedSingleSampleModel(DeterministicModel):
