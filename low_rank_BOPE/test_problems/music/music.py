@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 import torch
@@ -29,26 +29,26 @@ DISSONANCE = {
 
 
 def get_combined_sine_wave(
-    frequencies: Tensor, 
+    frequencies: List, 
+    amplitudes: List[float],
     duration: float, 
     sample_rate: Optional[int] = 44100, 
-    amplitude: Optional[int] = 128
 ):
     """
     Get (combined) sine wave of specified frequencies.
 
     Args:
         frequencies: `n_frequencies x 1` tensor of frequencies in hertz
+        amplitudes: peak amplitudes of each of the `n_frequencies` waves
         duration: time of measurement in seconds
         sample_rate: number of measurements per second
-        amplitude: peak amplitude
     Returns:
         `duration*sample_rate x 1` tensor of wave signals
     """
 
     waves = []
     t = np.linspace(0, duration, int(sample_rate*duration))
-    for frequency in frequencies:
+    for frequency, amplitude in zip(frequencies, amplitudes):
         waves.append(amplitude*np.sin(2*np.pi*frequency*t))
 
     return torch.tensor(np.sum(waves, axis=0), dtype=torch.double)
@@ -75,7 +75,7 @@ class HarmonyOneKey(SyntheticTestFunction):
         self.note_freqs = [2**((n+1-49)/12)*440 for n in range(88)]
         self.base_key = base_key
         self.base_freq = self.note_freqs[base_key]
-        self.key_size = 1/12
+        # self.key_size = 1/12
         self.sample_rate = sample_rate
         self.duration = duration
         self.amplitude = amplitude
@@ -85,12 +85,15 @@ class HarmonyOneKey(SyntheticTestFunction):
         
     def evaluate_true(self, X):
         
-        keys = torch.div(X, self.key_size, rounding_mode="floor") + 1
+        # keys = torch.div(X, self.key_size, rounding_mode="floor") + 1 # rounding issues
+        keys = torch.round(X * 12) + 1
+        # print("keys: ", keys)
         Y = []
 
         for sample_idx in range(X.shape[-2]):
             key = int(self.base_key + keys[sample_idx].item())
             freq = self.note_freqs[key]
+            # print("self.base_freq:", self.base_freq, "key: ", key, "frequency: ", freq)
             Y.append(
                 get_combined_sine_wave(
                     frequencies=[self.base_freq, freq], 
@@ -102,31 +105,52 @@ class HarmonyOneKey(SyntheticTestFunction):
         
         return torch.vstack(Y)
 
-  
+
+"""
+new idea from peter: compute similarity with known pleasant spectra
+
+concretely: get the signal vectors of all combinations, do FFT (get base spectra), 
+compute pleasantness based on Plompt and Levelt (to doublecheck)
+store it in a dictionary (?) mapping spectrum to pleasantness value
+
+then, given a new sound wave, the utility is computed as follows
+- first do FFT on the sound wave;
+- then compute the distance of the spectrum with the 12 (?) other spectra 
+    (Euclidean? cosine similarity? probably need a normalizatio step?)
+- option 1: get the closest base spectrum, assign its pleasantness as the util value
+- option 2: compute the distance to all base spectra, 
+    take a weighted average of their pleasantness values (weights = 1/(distance+epsilon) or something)
+
+"""
 class Consonance(torch.nn.Module):
-    def __init__(self, model_spectra: list, dissonance_vals: list, similarity_eps: float = 0.0001):
+    def __init__(
+        self, 
+        model_spectra: list, 
+        dissonance_vals: list, 
+        util_type: str = "inverse_l2_nn",
+        similarity_eps: float = 0.5, # TODO: make this a kwarg
+    ):
+        r"""
+        Quantifies the level of pleasantness of a sound signal vector.
+
+        Args:
+            model_spectra:
+            dissonance_vals:
+            util_type: 
+                "inverse_l2_normalized":
+                "inverse_l2_unnormalized":
+                "dot_product": 
+            similarity_eps: 
+
+        """
+
         super().__init__()
         self.model_spectra = model_spectra
         self.dissonance_vals = dissonance_vals
-        self.similarity_eps = similarity_eps
+        self.util_type = util_type
+        self.similarity_eps = similarity_eps # TODO: make kwargs
     
     def forward(self, Y: Tensor):
-        r"""
-        new idea from peter: compute similarity with known pleasant spectra
-
-        concretely: get the signal vectors of all combinations, do FFT (get base spectra), 
-        compute pleasantness based on Plompt and Levelt (to doublecheck)
-        store it in a dictionary (?) mapping spectrum to pleasantness value
-        
-        then, given a new sound wave, the utility is computed as follows
-        - first do FFT on the sound wave;
-        - then compute the distance of the spectrum with the 12 (?) other spectra 
-          (Euclidean? cosine similarity? probably need a normalizatio step?)
-        - option 1: get the closest base spectrum, assign its pleasantness as the util value
-        - option 2: compute the distance to all base spectra, 
-          take a weighted average of their pleasantness values (weights = 1/(distance+epsilon) or something)
-        
-        """
 
         res_all = []
         for y in Y:
@@ -143,19 +167,32 @@ class Consonance(torch.nn.Module):
         yf = 2.0/len(y_np) * np.abs(yf[:len(self.model_spectra[0])])
 
         # compute a distance measure between yf and all the model spectra
-        # cosine? L2?
         # TODO: think through, enable more options
 
-        spectrum_similarity = []
-        for spectrum in self.model_spectra:
-            spectrum_distance = np.linalg.norm(yf-spectrum) # TODO: use vector operation later
-            spectrum_similarity.append(1/(spectrum_distance+self.similarity_eps)) # TODO: come back to this
-        spec_sim_sum = sum(spectrum_similarity)
+        if self.util_type.startswith("inverse_l2"):
+            spectrum_similarity = []
+            for spectrum in self.model_spectra:
+                spectrum_distance = np.linalg.norm(yf-spectrum) # TODO: use vector operation later
+                spectrum_similarity.append(1/(spectrum_distance+self.similarity_eps)) # TODO: come back to this
+            if self.util_type == "inverse_l2_normalized_wmean":
+                spec_sim_sum = sum(spectrum_similarity)
+                res = np.dot(
+                    np.array(spectrum_similarity) / spec_sim_sum,
+                    # 1-np.array(self.dissonance_vals)
+                    -np.log(np.array(self.dissonance_vals))
+                )
+            elif self.util_type == "inverse_l2_unnormalized_wmean":
+                res = np.dot(
+                    np.array(spectrum_similarity),
+                    # 1-np.array(self.dissonance_vals)
+                    -np.log(np.array(self.dissonance_vals))
+                )
+            elif self.util_type == "inverse_l2_nn":
+                ind = np.argmax(spectrum_similarity)
+                res = -np.log(self.dissonance_vals[ind])
 
-        return np.dot(
-            np.array(spectrum_similarity) / spec_sim_sum,
-            1-np.array(list(self.dissonance_vals))
-        )
+
+        return res
 
 
 def get_model_spectra(trunc_length: int):
