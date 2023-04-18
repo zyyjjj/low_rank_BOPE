@@ -106,6 +106,56 @@ class HarmonyOneKey(SyntheticTestFunction):
         return torch.vstack(Y)
 
 
+class NewHarmonyOneKey(SyntheticTestFunction):
+    r"""
+    Class for simulating playing two notes together in an octave,
+    where the first note must be A4. 
+    """
+
+    dim = 12
+    _bounds = torch.tensor([[0., 1.] for _ in range(12)])
+
+
+    def __init__(
+        self, 
+        base_key = 48, # key 49 = A4
+        sample_rate = 44100,
+        duration = 0.01, 
+        base_amplitude = 1
+    ): 
+        super().__init__()
+        # self.outcome_bounds has to do with amplitude
+        self.all_note_freqs = [2**((n+1-49)/12)*440 for n in range(88)]
+        self.note_freqs = self.all_note_freqs[49:61]
+        self.base_key = base_key
+        self.base_freq = self.note_freqs[base_key]
+        self.base_amplitude = base_amplitude
+
+        self.sample_rate = sample_rate
+        self.duration = duration
+        
+        self.outcome_dim = int(self.sample_rate * self.duration)
+        
+        
+    def evaluate_true(self, X):
+             
+        Y = []
+
+        for sample_idx in range(X.shape[-2]):
+            Y.append(
+                get_combined_sine_wave(
+                    frequencies=[self.base_freq] + self.note_freqs,
+                    amplitudes = [self.base_amplitude] + X[sample_idx].tolist(),
+                    duration=self.duration,
+                    sample_rate=self.sample_rate,
+                )
+            )
+        
+        return torch.vstack(Y)
+    
+########################################################################################
+######################################################################################## 
+
 """
 new idea from peter: compute similarity with known pleasant spectra
 
@@ -193,6 +243,82 @@ class Consonance(torch.nn.Module):
 
 
         return res
+
+
+class NewConsonance(torch.nn.Module):
+    def __init__(
+        self, 
+        model_spectra: list, 
+        dissonance_vals: list, 
+        util_type: str = "inverse_l2_nn",
+        similarity_eps: float = 0.5, # TODO: make this a kwarg
+    ):
+        r"""
+        Quantifies the level of pleasantness of a sound signal vector.
+
+        Args:
+            model_spectra:
+            dissonance_vals:
+            util_type: 
+                "inverse_l2_normalized":
+                "inverse_l2_unnormalized":
+                "dot_product": 
+            similarity_eps: 
+
+        """
+
+        super().__init__()
+        self.model_spectra = model_spectra
+        self.dissonance_vals = dissonance_vals
+        self.util_type = util_type
+        self.similarity_eps = similarity_eps # TODO: make kwargs
+
+        self.sigma_1 = 0.5 # TODO: come back to this
+        self.sigma_2 = 0.5 # TODO: come back to this
+    
+    def forward(self, Y: Tensor):
+
+        res_all = []
+        for y in Y:
+            res_all.append(self.get_pleasantness(y))
+        
+        return torch.tensor(res_all).unsqueeze(1)
+
+
+    def get_pleasantness(self, y: Tensor):
+
+        # transform y to an array
+        y_np = y.detach().numpy()
+        peaks, amps = self.get_spectra_peaks(y_np)
+
+        # pleasantness due to frequency difference 
+        num_keys_apart = int(np.log2(peaks[1]/peaks[0])*12)+1
+        cons_1 = -np.log(self.dissonance_vals[num_keys_apart]) # TODO: double check
+
+        # pleasantness due to amplitude difference
+        cons_2 = np.exp(-1/2 * (amps[0]-amps[1])^2 / self.sigma_1^2) \
+            * np.exp(-1/2 * (220-max(amps))^2 / self.sigma_2^2) # TODO: double check
+
+        return cons_1 * cons_2
+
+
+    def get_spectra_peaks(self, y: np.array):
+        r"""
+        Input a sound signal, get its two largest positive peaks, 
+        return the frequencies and amplitudes of the peaks.
+        """
+        spec = []
+        for freq in np.arange(420, 900, 1):
+            spec.append(np.dot(y, get_combined_sine_wave([freq], [1], 0.01)))
+        
+        # then find the top 2 peaks of res, return in increasing order
+        peaks, properties = find_peaks(spec, height=0.1) # TODO: can set height arg
+        top2_peaks_idx = np.argpartition(properties["peak_heights"], -2)[-2:]
+
+        top2_peaks = peaks[top2_peaks_idx]
+        top2_amps = properties["peak_heights"][top2_peaks_idx] 
+        
+        return top2_peaks, top2_amps
 
 
 def get_model_spectra(trunc_length: int):
