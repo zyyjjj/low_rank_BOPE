@@ -35,7 +35,8 @@ from low_rank_BOPE.src.diagnostics import (best_and_avg_util_in_subspace,
                                            check_util_model_fit,
                                            get_function_statistics,
                                            mc_max_outcome_error,
-                                           mc_max_util_error)
+                                           mc_max_util_error, 
+                                           compute_grassmannian)
 from low_rank_BOPE.src.models import MultitaskGPModel, make_modified_kernel
 from low_rank_BOPE.src.pref_learning_helpers import (
     ModifiedFixedSingleSampleModel, find_true_optimal_utility, gen_comps,
@@ -51,6 +52,46 @@ def defaultdict_list():
     return defaultdict(list)
 
 class RetrainingBopeExperiment:
+    r"""
+    BOPE experiment class that allows retraining of the subspaces.
+
+    possible methods:
+        "pca": unweighted PCA, subspace trained only once on the 
+            initial experimentation batch
+        "pca_all_rt": unweighted PCA, subspace retrained on all accummulated 
+            outcome data every time outcomes are queried in PE
+        "pca_eubo_rt": unweighted PCA, subspace retrained on outcomes that
+            only includes the winners of the preference pairs
+        "pca_postquantile_rt": unweighted PCA, subspace retrained on outcomes that
+            have posterior utility mean in the top alpha-quantile among all outcomes
+            # TODO: requires another hyperparameter; come back to this
+        "pca_postmax_rt": unweighted PCA, subspace retrained by adding outcome 
+            vectors that maximize the current posterior mean utility
+        "wpca_true_rt": weighted-retraining PCA, subspace retrained on outcome
+            data each associated with a weight value that depends on its true
+            utility value. This is a generalization of the above selection 
+            methods, but also allow continuous weights so that we can 
+            (de)prioritize some points "softly"
+        "wpca_est_rt": weighted-retraining PCA; similar to "wpca_true_rt" but
+            points are selected according to posterior mean utility
+        "spca_true": supervised PCA, principal components are selected based on 
+            how much they affect the true utility, rather than how much they 
+            explain the variance in the outcomes; the subspace is trained 
+            only once on the initial experimentation batch 
+        "spca_true_rt": similar to "spca_true" but subspace is retrained
+        "spca_est": similar to "spca_true" but supervised by posterior mean of 
+            utility model, rather than true utility values 
+        "random_linear_proj": random projection to a linear subspace; the 
+            projection is created independent of the data
+        "random_subset": randomly select a subset of outcomes and fit smaller GPs
+    
+    Possible pe_strategies:
+        "EUBO-zeta"
+        "Random-f"
+    
+    one run should handle one problem and >=1 methods and >=1 pe_strategies
+    """
+
 
     attr_list = {
         "pca_var_threshold": 0.95,
@@ -68,7 +109,8 @@ class RetrainingBopeExperiment:
         "initial_latent_dim": None,
         "min_stdv": 100000,
         "true_axes": None, # specify these for synthetic problems
-        "standardize": True
+        "standardize": True,
+        "include_xp1_candidates": False, # if true, include candidate designs in the first exp stage too in BO
     }
 
     def __init__(
@@ -81,44 +123,7 @@ class RetrainingBopeExperiment:
         output_path: str,
         **kwargs
     ) -> None:
-        """
-        specify experiment settings
-            problem:
-            util_func:
-            methods: list of statistical methods, each denoted using a str
-            pe_strategies: PE strategies to use, could be {"EUBO-zeta", "Random-f"}
-        one run should handle one problem and >=1 methods and >=1 pe_strategies
 
-        possible methods:
-            "pca": unweighted PCA, subspace trained only once on the 
-                initial experimentation batch
-            "pca_all_rt": unweighted PCA, subspace retrained on all accummulated 
-                outcome data every time outcomes are queried in PE
-            "pca_eubo_rt": unweighted PCA, subspace retrained on outcomes that
-                only includes the winners of the preference pairs
-            "pca_postquantile_rt": unweighted PCA, subspace retrained on outcomes that
-                have posterior utility mean in the top alpha-quantile among all outcomes
-                # TODO: requires another hyperparameter; come back to this
-            "pca_postmax_rt": unweighted PCA, subspace retrained by adding outcome 
-                vectors that maximize the current posterior mean utility
-            "wpca_true_rt": weighted-retraining PCA, subspace retrained on outcome
-                data each associated with a weight value that depends on its true
-                utility value. This is a generalization of the above selection 
-                methods, but also allow continuous weights so that we can 
-                (de)prioritize some points "softly"
-            "wpca_est_rt": weighted-retraining PCA; similar to "wpca_true_rt" but
-                points are selected according to posterior mean utility
-            "spca_true": supervised PCA, principal components are selected based on 
-                how much they affect the true utility, rather than how much they 
-                explain the variance in the outcomes; the subspace is trained 
-                only once on the initial experimentation batch 
-            "spca_true_rt": similar to "spca_true" but subspace is retrained
-            "spca_est": similar to "spca_true" but supervised by posterior mean of 
-                utility model, rather than true utility values 
-            "random_linear_proj": random projection to a linear subspace; the 
-                projection is created independent of the data
-            "random_subset": randomly select a subset of outcomes and fit smaller GPs
-        """
 
         # self.attr_list stores default values, then overwrite with kwargs
         for key in self.attr_list.keys():
@@ -250,6 +255,7 @@ class RetrainingBopeExperiment:
 
             util_vals = self.pref_data_dict[(method, pe_strategy)]["util_vals"]
             weights = compute_weights(util_vals.squeeze(1), weights_type="rank_bin")
+            print("weights: ", weights)
 
             projection = fit_pca(
                 Y, 
@@ -623,8 +629,14 @@ class RetrainingBopeExperiment:
 
         cand_Xs = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
         cand_Ys = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
-        train_X = torch.cat([self.initial_X, cand_Xs], dim=0)
-        print(f"cand_Xs shape: {cand_Xs.shape}", f"cand_Ys shape: {cand_Ys.shape}")
+        
+        if self.include_xp1_candidates:
+            if cand_Xs.nelement() > 0:
+                baseline_X = torch.cat([self.initial_X, cand_Xs], dim=0)
+            else:
+                baseline_X = self.initial_X
+        else:
+            baseline_X = cand_Xs
 
         # find experimental candidate(s) that maximize the noisy EI acqf
         new_cand_X, acqf_val = gen_exp_cand(
@@ -633,9 +645,14 @@ class RetrainingBopeExperiment:
             problem=self.problem,
             q=1,
             acqf_name="qNEI",
-            X=train_X,
+            X=baseline_X, 
             seed=self.trial_idx
         )
+        new_cand_X_posterior = self.outcome_models_dict[(method, pe_strategy)].posterior(new_cand_X)
+        new_cand_X_posterior_mean_util = util_model.posterior(new_cand_X_posterior.mean).mean.item()
+        new_cand_X_posterior_var = new_cand_X_posterior.variance
+        print('new_cand_X_posterior_mean_util: ', new_cand_X_posterior_mean_util)
+        print('average new_cand_X_posterior_var: ', torch.mean(new_cand_X_posterior_var))
         new_cand_Y = self.problem(new_cand_X).detach()
 
         qneiuu_util = self.util_func(self.problem.evaluate_true(new_cand_X)).item()
@@ -647,10 +664,13 @@ class RetrainingBopeExperiment:
             best_so_far = qneiuu_util
         else:
             best_so_far = max(best_so_far, qneiuu_util)
+        print(f"best so far at BO iter {BO_iter}: {best_so_far}")
 
         exp_result = {
             "candidate": new_cand_X,
             "acqf_val": acqf_val.item(),
+            "candidate_posterior_mean_util": new_cand_X_posterior_mean_util,
+            # "candidate_posterior_variance": new_cand_X_posterior.variance,
             "candidate_util": qneiuu_util,
             "best_util_so_far": best_so_far,
             "BO_iter": BO_iter,
@@ -772,7 +792,13 @@ class RetrainingBopeExperiment:
                 # relearn subspace if method calls for retraining
                 if method.endswith("rt"):
                     print("Retraining")
+                    prev_projection = self.projections_dict[(method, pe_strategy)]
                     self.compute_projections(method, pe_strategy)
+                    _, _, g = compute_grassmannian(
+                        prev_projection, 
+                        self.projections_dict[(method, pe_strategy)]
+                    )
+                    self.subspace_diagnostics[(method, pe_strategy)]["grassmannian"].append(g)
                     self.fit_outcome_model(method, pe_strategy)
                     # run diagnostics on the updated subspaces
                     self.compute_subspace_diagnostics(method, pe_strategy, n_test=1000)
@@ -786,7 +812,19 @@ class RetrainingBopeExperiment:
         for pe_strategy in self.pe_strategies:
             print(f"===== Running 2nd experimentation stage using {method} with {pe_strategy} =====")
             self.final_candidate_results[method][pe_strategy] = []
-            best_so_far = None
+
+            if self.include_xp1_candidates:
+                best_so_far = max(self.util_func(self.initial_Y))
+            else:
+                # use the last util-posterior-mean-maximizing x as the first evaluation point
+                self.BO_data_dict[(method, pe_strategy)]["X"] = \
+                    self.PE_session_results[method][pe_strategy][-1]["candidate"]
+                self.BO_data_dict[(method, pe_strategy)]["Y"] = \
+                    self.problem(self.BO_data_dict[(method, pe_strategy)]["X"])
+                best_so_far = self.util_func(self.BO_data_dict[(method, pe_strategy)]["Y"]).item()
+        
+            print(f"best so far before 2nd exp stage: {best_so_far}")
+
             for iter in range(n_BO_iters):
                 best_so_far = self.generate_BO_candidate(
                     method, pe_strategy, iter, best_so_far)
