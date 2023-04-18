@@ -9,6 +9,7 @@ from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
 from botorch.models.model import Model
 from botorch.utils.sampling import draw_sobol_samples
 from torch import Tensor
+import numpy as np
 
 from low_rank_BOPE.src.pref_learning_helpers import (gen_initial_real_data,
                                                      generate_random_inputs)
@@ -266,23 +267,26 @@ def compute_variance_explained_per_axis(data, axes, **tkwargs) -> torch.Tensor:
 
 def compute_grassmannian(subspace1: Tensor, subspace2: Tensor):
     r"""
-    Compute the Grassmannian distance between two linear subspaces with the 
-        same latent dimension. The smaller the distance, the more similar.
+    Compute the Grassmannian distance between two linear subspaces. 
+        The smaller the distance, the more similar.
     Refs: 
         https://web.ma.utexas.edu/users/vandyke/notes/deep_learning_presentation/presentation.pdf
         https://github.com/kristianeschenburg/submet/blob/master/submet/subspace.py
 
     Args:
-        subspace1: `latent_dim x outcome_dim` tensor, rows span the subspace
-        subspace2: `latent_dim x outcome_dim` tensor, rows span the subspace
+        subspace1: `latent_dim_1 x outcome_dim` tensor, rows span the subspace
+        subspace2: `latent_dim_2 x outcome_dim` tensor, rows span the subspace
     Returns:
-        S: `latent_dim` tensor, cosine of the principal angles
+        S: `latent_dim` tensor, cosine of the principal angles, 
+            where `latent_dim` = min(`latent_dim_1`, `latent_dim_2`) 
         principal_angles: `latent_dim` tensor, principal angles
         grassmannian: scalar, Grassmannian distance
     """
 
-    subspace1_ = torch.transpose(subspace1, -2, -1)
-    subspace2_ = torch.transpose(subspace2, -2, -1)
+    latent_dim = min(subspace1.shape[0], subspace2.shape[0])
+
+    subspace1_ = torch.transpose(subspace1[:latent_dim], -2, -1)
+    subspace2_ = torch.transpose(subspace2[:latent_dim], -2, -1)
 
     q1, _ = torch.linalg.qr(subspace1_) # `outcome_dim x latent_dim`
     q2, _ = torch.linalg.qr(subspace2_) # `outcome_dim x latent_dim`
@@ -296,7 +300,9 @@ def compute_grassmannian(subspace1: Tensor, subspace2: Tensor):
     # Grassmannian distance = square root of the sum of squares of the principal angles
     grassmannian = torch.sqrt(torch.sum(torch.square(principal_angles))).item()
 
-    return S, principal_angles, grassmannian
+    z = np.sqrt(latent_dim) * np.pi / 2
+
+    return S, principal_angles, grassmannian/z
 
 
 ################################################################################
