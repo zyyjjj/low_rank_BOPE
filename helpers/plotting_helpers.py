@@ -14,6 +14,8 @@ colors_dict = {
     "pca_all_rt": "tab:pink",
     "pca_eubo_rt": "tab:cyan",
     "pca_postmax_rt": "tab:orange",
+    "wpca_true_rt": "tab:purple",
+    "wpca_est_rt": "tab:brown",
     # "pcr": "tab:cyan", 
     "st": "tab:blue", 
     "true_proj": "tab:pink",
@@ -34,6 +36,8 @@ labels_dict = {
     "pca_all_rt": "PCA retraining using all",
     "pca_eubo_rt": "PCA retraining with EUBO winners",
     "pca_postmax_rt": "PCA retraining with posterior max",
+    "wpca_true_rt": "weighted PCA using true util values",
+    "wpca_est_rt": "weighted PCA using utility posterior mean",
     "pcr": "PCR", 
     "random_linear_proj": "Rand-linear-proj", 
     "random_subset": "Rand-subset", 
@@ -458,6 +462,7 @@ BO_results_labels_dict = {
     "candidate_util": "True utility of BO candidate",
     "acqf_val": "qNEIUU acquisition function value",
     "util_model_acc": "Utility model accuracy",
+    "best_util_so_far": "Best utility so far",
 }
 
 def plot_BO_results_single(
@@ -597,6 +602,7 @@ def plot_BO_results_multiple(
     methods: List[str],
     pe_strategy: str, 
     metric: str = "candidate_util",
+    input_outcome_dims: Optional[List[tuple[int]]] = None,
     shade: bool = True,
     num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
@@ -613,15 +619,15 @@ def plot_BO_results_multiple(
         All the others are the same as plot_BO_results_single()
     """
 
-    f, axs = plt.subplots(1, 1, figsize=kwargs.get("figsize",(10,3)))
+    f, axs = plt.subplots(1, len(problem_l), figsize=kwargs.get("figsize",(10,3)))
+
+    input_outcome_dims = kwargs.get("input_outcome_dims", None)
 
     for j in range(len(problem_l)):
 
         problem = problem_l[j]
 
-        input_dim = kwargs.get("input_dim", None)
-        outcome_dim = kwargs.get("outcome_dim", None)
-        if input_dim is None or outcome_dim is None:
+        if input_outcome_dims is None:
             if problem_type == "synthetic":
                 _, rank, _, input_dim, outcome_dim, alpha, noise = problem.split('_')
             elif problem_type == "shapes":
@@ -631,8 +637,14 @@ def plot_BO_results_multiple(
             elif problem_type == "music":
                 input_dim = 1
                 outcome_dim = 441 # TODO: don't hardcode
+            elif problem_type == "cars":
+                problem_name, iodim, util_type, outcome_dim, _ = problem.split("_")
+                input_dim = int(iodim[0])
+                outcome_dim = int(outcome_dim)
             else:
                 raise RuntimeError("Input and outcome dims not specified!")
+        else:
+            input_dim, outcome_dim = input_outcome_dims[j]
         
         BO_results = [res 
                         for i in outputs[problem]['exp_candidate_results'].keys() 
@@ -657,14 +669,14 @@ def plot_BO_results_multiple(
                         num_plot_datapoints = len(group["BO_iter"].values)
 
                     if shade: 
-                        axs.plot(
+                        axs[j].plot(
                             # x_jittered[:num_plot_datapoints],
                             group["BO_iter"].values,
                             group["mean"].values[:num_plot_datapoints],
                             label=labels_dict[name[0]],
                             color=colors_dict[name[0]],
                         )
-                        axs.fill_between(
+                        axs[j].fill_between(
                             # x=x_jittered[:num_plot_datapoints],
                             group["BO_iter"].values,
                             y1=group["mean"].values[:num_plot_datapoints] \
@@ -678,7 +690,7 @@ def plot_BO_results_multiple(
                         jitter = x_jitter_dict[group["method"].values[0]]
                         x_jittered = [x_ + jitter for x_ in group["BO_iters"].values]
                         
-                        axs.errorbar(
+                        axs[j].errorbar(
                             x=x_jittered[:num_plot_datapoints],
                             y=group["mean"].values[:num_plot_datapoints],
                             yerr=group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
@@ -689,13 +701,13 @@ def plot_BO_results_multiple(
                             color=colors_dict[name[0]],
                         )
         
-                    axs.set_title(
+                    axs[j].set_title(
                         f"{problem}\n d={input_dim}, k={outcome_dim}",
                         fontsize=kwargs.get("title_fontsize", 12.5)
                     )
                 
-                    axs.set_xlabel("Number of BO iterations")
-                    axs.xaxis.set_major_locator(MaxNLocator(integer=True))
+                    axs[j].set_xlabel("Number of BO iterations")
+                    axs[j].xaxis.set_major_locator(MaxNLocator(integer=True))
 
     ylabel = kwargs.get("ylabel", BO_results_labels_dict[metric])
     axs[0].set_ylabel(ylabel)

@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from botorch.test_functions import SyntheticTestFunction
 from scipy.fft import fft, fftfreq
+from scipy.signal import find_peaks
 from torch import Tensor
 
 # code credit to
@@ -108,13 +109,12 @@ class HarmonyOneKey(SyntheticTestFunction):
 
 class NewHarmonyOneKey(SyntheticTestFunction):
     r"""
-    Class for simulating playing two notes together in an octave,
-    where the first note must be A4. 
+    Class for simulating playing multiple keys in the octave above A4 together,
+    with potentially different intensities.
     """
 
     dim = 12
     _bounds = torch.tensor([[0., 1.] for _ in range(12)])
-
 
     def __init__(
         self, 
@@ -128,7 +128,7 @@ class NewHarmonyOneKey(SyntheticTestFunction):
         self.all_note_freqs = [2**((n+1-49)/12)*440 for n in range(88)]
         self.note_freqs = self.all_note_freqs[49:61]
         self.base_key = base_key
-        self.base_freq = self.note_freqs[base_key]
+        self.base_freq = self.all_note_freqs[base_key]
         self.base_amplitude = base_amplitude
 
         self.sample_rate = sample_rate
@@ -145,6 +145,7 @@ class NewHarmonyOneKey(SyntheticTestFunction):
             Y.append(
                 get_combined_sine_wave(
                     frequencies=[self.base_freq] + self.note_freqs,
+                    # TODO: later try 2*X[sample_idx] for amplitude
                     amplitudes = [self.base_amplitude] + X[sample_idx].tolist(),
                     duration=self.duration,
                     sample_rate=self.sample_rate,
@@ -248,33 +249,21 @@ class Consonance(torch.nn.Module):
 class NewConsonance(torch.nn.Module):
     def __init__(
         self, 
-        model_spectra: list, 
         dissonance_vals: list, 
-        util_type: str = "inverse_l2_nn",
-        similarity_eps: float = 0.5, # TODO: make this a kwarg
+        sigma: float = 100
     ):
         r"""
         Quantifies the level of pleasantness of a sound signal vector.
 
         Args:
-            model_spectra:
-            dissonance_vals:
-            util_type: 
-                "inverse_l2_normalized":
-                "inverse_l2_unnormalized":
-                "dot_product": 
-            similarity_eps: 
+            dissonance_vals: 
+            sigma: 
 
         """
 
         super().__init__()
-        self.model_spectra = model_spectra
         self.dissonance_vals = dissonance_vals
-        self.util_type = util_type
-        self.similarity_eps = similarity_eps # TODO: make kwargs
-
-        self.sigma_1 = 0.5 # TODO: come back to this
-        self.sigma_2 = 0.5 # TODO: come back to this
+        self.sigma = sigma
     
     def forward(self, Y: Tensor):
 
@@ -292,12 +281,13 @@ class NewConsonance(torch.nn.Module):
         peaks, amps = self.get_spectra_peaks(y_np)
 
         # pleasantness due to frequency difference 
-        num_keys_apart = int(np.log2(peaks[1]/peaks[0])*12)+1
+        num_keys_apart = int(np.abs(np.log2(peaks[1]/peaks[0]))*12)
+        # print("num keys apart: ", num_keys_apart)
         cons_1 = -np.log(self.dissonance_vals[num_keys_apart]) # TODO: double check
 
         # pleasantness due to amplitude difference
-        cons_2 = np.exp(-1/2 * (amps[0]-amps[1])^2 / self.sigma_1^2) \
-            * np.exp(-1/2 * (220-max(amps))^2 / self.sigma_2^2) # TODO: double check
+        cons_2 = np.exp(-(amps[0]-amps[1])**2 / self.sigma**2) \
+            * np.exp(-(220-max(amps))**2 / self.sigma**2) # TODO: double check
 
         return cons_1 * cons_2
 
@@ -315,11 +305,10 @@ class NewConsonance(torch.nn.Module):
         peaks, properties = find_peaks(spec, height=0.1) # TODO: can set height arg
         top2_peaks_idx = np.argpartition(properties["peak_heights"], -2)[-2:]
 
-        top2_peaks = peaks[top2_peaks_idx]
+        top2_peaks = [440+peaks[top2_peaks_idx][i] for i in [0,1]]
         top2_amps = properties["peak_heights"][top2_peaks_idx] 
-        
-        return top2_peaks, top2_amps
 
+        return top2_peaks, top2_amps
 
 def get_model_spectra(trunc_length: int):
 
