@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 from matplotlib.ticker import MaxNLocator
+import math
 
 # ===== Plotting settings =====
 
@@ -349,7 +350,8 @@ subspace_diagnostics_labels_dict = {
     "rel_mse": "MSE of outcome model",
     "max_util_error": "Max util error in subspace",
     "max_outcome_error": "Max outcome error in subspace",
-    "latent_dim": "subspace dimension"
+    "latent_dim": "subspace dimension",
+    "grassmannian": "Grassmannian distance",
 }
 
 
@@ -360,6 +362,7 @@ def plot_subspace_diagnostics_single(
     pe_strategy: str = "EUBO-zeta",
     metric: str = "best_util",
     shade: bool = True,
+    plot_vline: Optional[bool] = False,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
     **kwargs
@@ -375,38 +378,45 @@ def plot_subspace_diagnostics_single(
         metric: the quantity of interest, 
             one of {"best_util", "model_fitting_time", "rel_mse", "max_util_error", "max_outcome_error"}
         shade: whether to plot error bars as shaded regions or not
+        plot_vline: whether to plot a vertical line,
+            this is used to separate the PE and BO stages, if metrics are logged together for both
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
     """
 
     available_trials = list(outputs[problem]["subspace_diagnostics"].keys())
-    num_retrain = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("pca_all_rt", pe_strategy)][metric])
+    num_retrain_and_boiters = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("pca_all_rt", pe_strategy)][metric])
 
-    print(available_trials)
+    print("available trials: ", available_trials)
+
+    num_retrain = None
 
     for method in methods:
-        # a nested list where each sub-list is a record of metric over retraining for one trial     
 
+        print(f"Plotting for method {method}")
+
+        # a nested list where each sub-list is a record of metric over retraining for one trial     
         data = []
 
         for trial_idx in available_trials:
             try:
                 tmp = outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][metric]
-                if torch.is_tensor(tmp[0]):
+                if torch.is_tensor(tmp[0]): # in case I accidentally saved a 1-element tensor instead of a float
                     data.append(tensor_list_to_float_list(tmp))
                 else:
                     data.append(tmp)
+                longest = max(longest, len(tmp))
             except:
                 continue
 
-        # data = [outputs[problem]["subspace_diagnostics"][trial_idx][(method, pe_strategy)][metric] for trial_idx in available_trials]
-        
-        # if torch.is_tensor(outputs[problem]["subspace_diagnostics"][available_trials[0]][(method, pe_strategy)][metric][0]):
-        #     data_tmp = [tensor_list_to_float_list(data[t]) for t in range(len(data))]
-        #     data = data_tmp
-
-        if len(data[0]) == 1:
-            data_np = np.repeat(data, num_retrain, axis = 1)
+        # for the methods whose record length is shorter, repeat the first element to match the length of the longest one
+        # TODO: handle the case where data is empty (why?)
+        if len(data[0]) < num_retrain_and_boiters:
+            data_np = np.array(data)
+            data_np_head = np.repeat(data_np[:, 0:1], num_retrain_and_boiters-len(data[0]), axis=1)
+            data_np = np.concatenate((data_np_head, data_np), axis=1)
+            if num_retrain is None:
+                num_retrain = num_retrain_and_boiters-len(data[0]) + 1
         else:
             data_np = np.array(data)
         
@@ -434,7 +444,24 @@ def plot_subspace_diagnostics_single(
                 alpha=0.6,
             )
 
-    plt.legend(loc=kwargs.get("legend_loc", "lower left"))
+    if plot_vline:
+        plt.vlines(
+            x = num_retrain, 
+            ymin = kwargs.get("vline_ymin", 0), 
+            ymax = kwargs.get("vline_ymax", 1),
+            color = "black", 
+            alpha = 0.5,
+            linestyles = "dashed", 
+            linewidth = 1.5
+        )
+
+    plt.legend(
+        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
+        loc=kwargs.get("legend_loc", "lower left"), 
+        ncol=kwargs.get("legend_ncols", 5), 
+        fontsize=kwargs.get("legend_fontsize", 12)
+    )
+
     plt.xlabel("Number of times retrained")
 
     y_label = kwargs.get("y_label", subspace_diagnostics_labels_dict[metric])
