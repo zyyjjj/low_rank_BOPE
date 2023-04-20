@@ -120,7 +120,7 @@ def plot_performance_over_comps_single(
             num_pixels, _ = problem.split("by")
             outcome_dim = int(num_pixels) ** 2
         elif problem_type == "music":
-            input_dim = 1
+            input_dim = 12
             outcome_dim = 441 # TODO: don't hardcode
         else:
             raise RuntimeError("Input and outcome dims not specified!")
@@ -347,7 +347,7 @@ subspace_diagnostics_labels_dict = {
     "best_util": "Best utility in subspace",
     "avg_util": "Average utility in subspace",
     "model_fitting_time": "Time to fit outcome model",
-    "rel_mse": "MSE of outcome model",
+    "rel_mse": "Frac variance unexplained of outcome model",
     "max_util_error": "Max util error in subspace",
     "max_outcome_error": "Max outcome error in subspace",
     "latent_dim": "subspace dimension",
@@ -385,7 +385,17 @@ def plot_subspace_diagnostics_single(
     """
 
     available_trials = list(outputs[problem]["subspace_diagnostics"].keys())
-    num_retrain_and_boiters = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("pca_all_rt", pe_strategy)][metric])
+
+    found_valid_trial = False
+    try_trial = 0
+    while not found_valid_trial:
+        try:
+            num_retrain_and_boiters = len(outputs[problem]["subspace_diagnostics"][available_trials[try_trial]][("pca_all_rt", pe_strategy)][metric])
+            found_valid_trial = True
+        except:
+            try_trial += 1
+
+    # num_retrain_and_boiters = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("pca_all_rt", pe_strategy)][metric])
 
     print("available trials: ", available_trials)
 
@@ -416,7 +426,7 @@ def plot_subspace_diagnostics_single(
             data_np_head = np.repeat(data_np[:, 0:1], num_retrain_and_boiters-len(data[0]), axis=1)
             data_np = np.concatenate((data_np_head, data_np), axis=1)
             if num_retrain is None:
-                num_retrain = num_retrain_and_boiters-len(data[0]) + 1
+                num_retrain = num_retrain_and_boiters-len(data[0]) 
         else:
             data_np = np.array(data)
         
@@ -536,7 +546,7 @@ def plot_BO_results_single(
             num_pixels, _ = problem.split("by")
             outcome_dim = int(num_pixels) ** 2
         elif problem_type == "music":
-            input_dim = 1
+            input_dim = 12
             outcome_dim = 441 # TODO: don't hardcode
         else:
             raise RuntimeError("Input and outcome dims not specified!")
@@ -662,7 +672,7 @@ def plot_BO_results_multiple(
                 num_pixels, _ = problem.split("by")
                 outcome_dim = int(num_pixels) ** 2
             elif problem_type == "music":
-                input_dim = 1
+                input_dim = 12
                 outcome_dim = 441 # TODO: don't hardcode
             elif problem_type == "cars":
                 problem_name, iodim, util_type, outcome_dim, _ = problem.split("_")

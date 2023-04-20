@@ -11,16 +11,18 @@ import yaml
 
 from low_rank_BOPE.bope_class import BopeExperiment
 from low_rank_BOPE.bope_class_retraining import RetrainingBopeExperiment
-from low_rank_BOPE.test_problems.music.music import HarmonyOneKey, Consonance, get_model_spectra, DISSONANCE
+from low_rank_BOPE.test_problems.music.music import (DISSONANCE, NewConsonance,
+                                                     NewHarmonyOneKey)
+
 
 def run_pipeline(
-    trial_idx, n_pixels, 
+    trial_idx, 
     # outcome_func_name,
     # util_func_name,
     retrain,
     methods = ["st", "pca", "pcr"],
     pe_strategies = ["EUBO-zeta", "Random-f"],
-    spectrum_truncation_length: int = 20,
+    sigma = 100,
     **kwargs):
 
     torch.manual_seed(trial_idx)
@@ -28,26 +30,21 @@ def run_pipeline(
 
     print("methods to plug into BopeExperiment: ", methods)
 
-    problem = HarmonyOneKey()
+    problem = NewHarmonyOneKey()
 
-    try:
-        model_spectra = torch.load('/home/yz685/low_rank_BOPE/low_rank_BOPE/test_problems/music/model_spectra_{trunc_length}.pt')
-    except FileNotFoundError:
-        model_spectra = get_model_spectra(trunc_length=spectrum_truncation_length)
-
-    util_func = Consonance(
-        model_spectra = model_spectra,
-        dissonance_vals = list(DISSONANCE.values())
+    util_func = NewConsonance(
+        dissonance_vals = list(DISSONANCE.values()),
+        sigma = sigma
     )
 
     if retrain:
         experiment_class = RetrainingBopeExperiment
-        output_path = "/home/yz685/low_rank_BOPE/experiments/music/" + \
-            f"onekey_{spectrum_truncation_length}/"
+        output_path = "/home/yz685/low_rank_BOPE/experiments/music_rt/" + \
+            f"octave_sigma={sigma}/"
     else:
         experiment_class = BopeExperiment
         output_path = "/home/yz685/low_rank_BOPE/experiments/music/" + \
-            f"onekey_{spectrum_truncation_length}/"
+            f"octave_sigma={sigma}/"
 
     experiment = experiment_class(
         problem, 
@@ -72,14 +69,13 @@ if __name__ == "__main__":
 
     run_pipeline(
         trial_idx = trial_idx,
-        n_pixels=args["n_pixels"],
-        # util_func_name = args["util_func_name"],
+        # util_func_name = args["util_func_name"], # TODO: add util_type argument
         # outcome_func_name = args["outcome_func_name"],
         retrain = args["retrain"],
         n_check_post_mean = args["n_check_post_mean"], 
         methods = args["methods"], 
         pe_strategies = args["pe_strategies"],
-        spectrum_truncation_length = args["spectrum_truncation_length"],
+        sigma = args["sigma"],
         pca_var_threshold = args["pca_var_threshold"],
         initial_experimentation_batch = args["init_exp_batch"],
     )

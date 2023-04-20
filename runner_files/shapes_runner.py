@@ -88,5 +88,6 @@ if __name__ == "__main__":
         pca_var_threshold = args["pca_var_threshold"],
         initial_experimentation_batch = args["init_exp_batch"],
         penalty_param = args["penalty_param"],
-        binarize_area = args.get("binarize", True)
+        binarize_area = args.get("binarize", True),
+        n_BO_iters = args.get("n_BO_iters", 10),
     )
