@@ -40,6 +40,7 @@ def step(state, Q, R, params):
     # This may make our inventory negative.
     # Also calculate stockout costs
     demand = np.random.normal(params['demand_mean'], params['demand_std'])
+    demand = np.max([0,demand])
     
     # Calculate stockout costs
     onhand = np.max([0,state['inventory']])
@@ -64,19 +65,24 @@ def step(state, Q, R, params):
 class Inventory(SyntheticTestFunction):
     r"""
     Simulate an inventory control problem using the QR policy.
+    The QR policy is a 2-parameter strategy that reorders quantity Q when the 
+    inventory level drops below reorder level R.
+    Each policy leads to a trajectory of inventory levels over time.
     """
     dim = 2
-    _bounds = torch.tensor([[0., 1.], [0., 1.]])
+    _bounds = torch.tensor([[0., 1.], [0., 1.]]) 
 
     def __init__(
             self,
             duration: int,
-            init_inventory: int, # TODO: do we want to keep this fixed?
+            init_inventory: int = 100, # keep it fixed for now
+            x_scaling: int = 100,
             params = PARAMS
     ):
         super().__init__()
         self.duration = duration
         self.init_inventory = init_inventory
+        self.x_scaling = x_scaling
         self.params = params
 
     def evaluate_true(self, X: Tensor):
@@ -86,7 +92,7 @@ class Inventory(SyntheticTestFunction):
         """
         Y = []
         for x in X:
-            Y.append(self.evaluate_true_single(x))
+            Y.append(self.evaluate_true_single(self.x_scaling * x))
         
         return torch.vstack(Y)
 
@@ -94,10 +100,10 @@ class Inventory(SyntheticTestFunction):
         r"""
         Simulate an inventory trajectory for one policy.
         Args:
-            x: `1x2` tensor, where first entry is Q and second is R # TODO: confirm shape
+            x: 2-dim tensor, where first entry is Q and second is R
         """
 
-        x_np = x.detach.numpy()
+        x_np = x.detach().numpy()
         state = {
             'inventory' : self.init_inventory, 
             'days_left' : -1, 
@@ -113,22 +119,62 @@ class Inventory(SyntheticTestFunction):
             cost.append(state['cost'])
             state = step(state, Q=x_np[0], R=x_np[1], params=self.params)
 
-        return torch.tensor(inventory)
+        return torch.tensor(inventory) 
         
 
-
 class InventoryUtil(torch.nn.Module):
-    r"""Do something"""
+    r"""
+    Negative cost incurred by an inventory time series.
+    Naive version: cost incurred by ordering, holding, and backordering.
+    TODO: Fancy version: incorporate latent preferences, 
+        e.g., someone who dislikes when the inventory gets above a threshold 
+        because it doesn't fit in the warehouse, or when Q is above a threshold 
+        because you need to send two trucks
+    """
     def __init__(
-            self,
-            # more
+        self,
+        stockout_penalty_per_unit: float = 0.1, # p in the slides
+        holding_cost_per_unit: float = 0.01, # h in the slides
+        order_cost_one_time: float = 1,
+        order_cost_per_unit: float = 0.1,
     ):
         super().__init__()
-        pass
+        self.stockout_penalty_per_unit = stockout_penalty_per_unit
+        self.holding_cost_per_unit = holding_cost_per_unit
+        self.order_cost_one_time = order_cost_one_time
+        self.order_cost_per_unit = order_cost_per_unit
+
 
     def forward(self, Y: Tensor):
         r"""
+        Compute the utility associated with a set of inventory time series.
+
         Args:
-            Y: 
+            Y: `num_samples x outcome_dim` tensor
         """
-        pass
+
+        neg_costs = []
+
+        for y in Y:
+            neg_costs.append(self.compute_neg_cost(y))
+        
+        return torch.tensor(neg_costs).unsqueeze(1)
+
+    def compute_neg_cost(self, y: Tensor):
+        r"""
+        Compute the utility for one inventory time series.
+        
+        Args:
+            y: k-dimensional tensor
+        """
+
+        cost = 0.
+        y = y.detach().numpy()
+
+        for t in range(len(y)):
+            cost += self.holding_cost_per_unit * np.maximum(float(y[t]), 0.)
+            cost += self.stockout_penalty_per_unit * np.maximum(-y[t], 0.)
+            if t > 0 and y[t] > y[t-1]:
+                cost += self.order_cost_one_time + self.order_cost_per_unit * (y[t]-y[t-1])
+        
+        return -cost
