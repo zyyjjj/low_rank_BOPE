@@ -73,14 +73,14 @@ class Inventory(SyntheticTestFunction):
     _bounds = torch.tensor([[0., 1.], [0., 1.]]) 
 
     def __init__(
-            self,
-            duration: int,
-            init_inventory: int = 100, # keep it fixed for now
-            x_scaling: int = 100,
-            params = PARAMS
+        self,
+        duration: int,
+        init_inventory: int = 100, # keep it fixed for now
+        x_scaling: int = 100,
+        params: dict = PARAMS
     ):
         super().__init__()
-        self.duration = duration
+        self.outcome_dim = duration
         self.init_inventory = init_inventory
         self.x_scaling = x_scaling
         self.params = params
@@ -113,7 +113,7 @@ class Inventory(SyntheticTestFunction):
         days_left = []
         cost = []
 
-        for t in range(self.duration):
+        for t in range(self.outcome_dim):
             inventory.append(state['inventory'])
             days_left.append(state['days_left'])
             cost.append(state['cost'])

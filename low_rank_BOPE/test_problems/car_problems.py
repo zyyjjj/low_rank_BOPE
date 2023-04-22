@@ -28,7 +28,7 @@ class AdaptedOSY(MultiObjectiveTestProblem):
     r"""
     Adapted OSY test problem from [Oszycka1995]_.
     This is adapted from botorch implementation.
-    We negated the fs and treat gs a objectives so that the goal is to maximzie everything
+    We negated the fs and treat gs a objectives so that the goal is to maximize everything
     """
 
     dim = 6
@@ -909,7 +909,7 @@ def problem_setup_augmented(
             else:
                 raise RuntimeError("Unsupported Y_dim for betacdf utility")
             get_util = PiecewiseLinear(beta1=beta1, beta2=beta2, thresholds=thresholds)
-        elif util_type == "sigmodconstraints":
+        elif util_type == "sigmoidconstraints":
             get_util = OSYSigmoidConstraintsUtil(Y_bounds=Y_bounds)
         else:
             raise RuntimeError("Unsupported problem!")
