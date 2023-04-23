@@ -8,7 +8,6 @@ from collections import defaultdict
 from typing import List
 
 import botorch
-import gpytorch
 import numpy as np
 import torch
 from botorch.acquisition.objective import LearnedObjective
@@ -89,7 +88,7 @@ class RetrainingBopeExperiment:
         "EUBO-zeta"
         "Random-f"
     
-    one run should handle one problem and >=1 methods and >=1 pe_strategies
+    One run handles one problem and >=1 methods and >=1 pe_strategies.
     """
 
 
@@ -125,6 +124,16 @@ class RetrainingBopeExperiment:
         output_path: str,
         **kwargs
     ) -> None:
+        r"""
+        Initialize RetrainingBopeExperiment class.
+        Args:
+            problem: outcome function
+            util_func: utility function
+            methods: list of methods to use
+            pe_strategies: list of pe_strategies to use
+            trial_idx: index of the trial; controls randomness
+            output_path: path to save the experiment results to
+        """
 
 
         # self.attr_list stores default values, then overwrite with kwargs
@@ -174,8 +183,8 @@ class RetrainingBopeExperiment:
 
         # save results
         self.PE_time_dict = {}
-        self.PE_session_results = defaultdict(defaultdict_list) # [method][pe_strategy] # TODO: checkxf
-        self.final_candidate_results = defaultdict(defaultdict_list) # [method][pe_strategy] # TODO: check
+        self.PE_session_results = defaultdict(defaultdict_list) # [method][pe_strategy] 
+        self.final_candidate_results = defaultdict(defaultdict_list) # [method][pe_strategy]
         self.subspace_diagnostics = defaultdict(defaultdict_list) # [(method, pe_strategy)][diag_metric] = list
         self.util_postmean_landscape = defaultdict(list) # [(method, pe_strategy)] = list of statistics tuples
 
@@ -189,7 +198,8 @@ class RetrainingBopeExperiment:
         )
         print("True utility landscape: ", true_util_landscape)
 
-    def generate_random_experiment_data(self, n, compute_util = True):
+
+    def generate_random_experiment_data(self, n: int, compute_util: bool = True):
         r"""Generate n observations of experimental designs and outcomes.
         This is shared by all methods. 
         Args:
@@ -225,7 +235,14 @@ class RetrainingBopeExperiment:
                     }
                     self.subspace_training_Y[(method, pe_strategy)] = self.initial_Y
 
-    def compute_projections(self, method, pe_strategy):
+
+    def compute_projections(self, method: str, pe_strategy: str):
+        r"""
+        - Compute projections to subspace for given method and pe_strategy. 
+        - Store the projection in self.projections_dict.
+        - Update self.transforms_covar_dict with the computed projection.
+        - Save subspace diagnostics in self.subspace_diagnostics.
+        """
         
         projection = None
         Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
@@ -364,11 +381,11 @@ class RetrainingBopeExperiment:
             self.subspace_diagnostics[(method, pe_strategy)]["latent_dim"].append(projection.shape[0])
 
             
-    def fit_outcome_model(self, method, pe_strategy): 
-        r"""Fit outcome model based on specified method.
-        Args:
-            method: string specifying the statistical model
-            pe_strategy: string specifying the PE strategy
+    def fit_outcome_model(self, method: str, pe_strategy: str): 
+        r"""
+        - Fit outcome model for given method and pe_strategy.
+        - Save the outcome model in self.outcome_models_dict.
+        - Save diagnostics such as fitting error in self.subspace_diagnostics.
         """
 
         start_time = time.time()
@@ -401,17 +418,8 @@ class RetrainingBopeExperiment:
         self.outcome_models_dict[(method, pe_strategy)] = outcome_model
 
 
-    def fit_util_model(
-        self, 
-        method,
-        pe_strategy
-    ):
-        r"""Fit utility model based on given data and model_kwargs
-        Args:
-            Y: `num_samples x outcome_dim` tensor of outcomes
-            comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
-            model_kwargs: input transform and covar_module
-        """
+    def fit_util_model(self, method: str, pe_strategy: str):
+        r"""Fit and return utility model for given method and pe_strategy."""
 
         train_Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
         train_comps = self.pref_data_dict[(method, pe_strategy)]["comps"]
@@ -433,7 +441,13 @@ class RetrainingBopeExperiment:
 
         return util_model
 
-    def run_pref_learning(self, method, pe_strategy):
+
+    def run_pref_learning(self, method: str, pe_strategy: str):
+        r"""
+        - Run preference learning for given method and pe_strategy 
+        for self.every_n_comps times.
+        - Save the new preference data in self.pref_data_dict.
+        """
 
         acqf_vals = []
         for i in range(self.every_n_comps):
@@ -544,7 +558,17 @@ class RetrainingBopeExperiment:
             }
             
 
-    def find_max_posterior_mean(self, method, pe_strategy, num_pref_samples=1):
+    def find_max_posterior_mean(
+        self, 
+        method: str, 
+        pe_strategy: str, 
+        num_pref_samples: int =1
+    ):
+        r"""
+        Find the candidate design that maximizes the posterior mean utility.
+        Compute its true utility as well as other diagnostics, return in a 
+        dictionary called `within_result`.
+        """
 
         n_comps = self.pref_data_dict[(method, pe_strategy)]["comps"].shape[0]
 
@@ -623,7 +647,22 @@ class RetrainingBopeExperiment:
         return within_result
 
 
-    def generate_BO_candidate(self, method, pe_strategy, BO_iter, best_so_far):
+    def generate_BO_candidate(
+        self, 
+        method: str, 
+        pe_strategy: str, 
+        BO_iter: int, 
+        best_so_far: float,
+        cum_n_BO_iters_so_far: int
+    ):
+        r"""
+        Generate `self.BO_batch_size` number of BO candidate designs.
+        Args:
+            BO_iter: iteration index in the current BO stage
+            best_so_far: best observed utility value in all BO stages so far
+            cum_n_BO_iters_so_far: cumulative number of BO iterations in all BO 
+                stages so far
+        """
 
         util_model = self.fit_util_model(
             method, pe_strategy
@@ -679,11 +718,11 @@ class RetrainingBopeExperiment:
         exp_result = {
             "candidate": new_cand_X,
             "acqf_val": acqf_val.tolist(),
-            "candidate_posterior_mean_util": new_cand_X_posterior_mean_util,
+            "candidate_posterior_mean_util": new_cand_X_posterior_mean_util.squeeze(1).tolist(),
             # "candidate_posterior_variance": new_cand_X_posterior.variance,
-            "candidate_util": qneiuu_util,
+            "candidate_util": qneiuu_util.squeeze(1).tolist(),
             "best_util_so_far": best_so_far,
-            "BO_iter": BO_iter,
+            "BO_iter": BO_iter + cum_n_BO_iters_so_far,
             "method": method,
             "strategy": pe_strategy,
             "run_id": self.trial_idx,
@@ -704,9 +743,13 @@ class RetrainingBopeExperiment:
         return best_so_far
 
 
-    def compute_subspace_diagnostics(self, method, pe_strategy, n_test = 1000):
-        # log diagnostics for recovering outcome and utility from the subspace
-
+    def compute_subspace_diagnostics(self, method: str, pe_strategy: str, n_test = 1000):
+        r"""Compute and save diagnostics for the method and pe_strategy:
+        - outcome reconstruction in subspace
+        - utility reconstruction in subspace
+        - best achievable utility value in subspace max_x g(VV^T f(x))
+        - average utility value in subspace E[g(VV^T f(x))]
+        """
         projection = self.projections_dict[(method, pe_strategy)] 
 
         max_outcome_error = mc_max_outcome_error(
@@ -734,52 +777,22 @@ class RetrainingBopeExperiment:
         self.subspace_diagnostics[(method, pe_strategy)]["avg_util"].append(avg_subspace_util)
 
 
-    def generate_random_pref_data(self, method, pe_strategy, n):
+# ======== Putting together into stages ========
 
-        X = (
-            draw_sobol_samples(
-                bounds=self.problem.bounds,
-                n=1,
-                q=2*n,
-                seed=self.trial_idx 
-            )
-            .squeeze(0)
-            .to(torch.double)
-            .detach()
-        )
-        Y = self.outcome_models_dict[(method, pe_strategy)].posterior(
-            X).rsample().squeeze(0).detach()
-        util_val = self.util_func(Y)
-        comps = gen_comps(util_val)
-
-        self.pref_data_dict[(method, pe_strategy)]["comps"] = torch.cat(
-            (self.pref_data_dict[(method, pe_strategy)]["comps"],
-            comps + self.pref_data_dict[(method, pe_strategy)]["Y"].shape[0])
-        )
-        self.pref_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
-            (self.pref_data_dict[(method, pe_strategy)]["Y"], Y)
-        )
-        self.pref_data_dict[(method, pe_strategy)]["util_vals"] = torch.cat(
-            (self.pref_data_dict[(method, pe_strategy)]["util_vals"], util_val)
-        )
-
-
-# ======== Putting it together into steps ========
-
-
-    def run_initial_experimentation_stage(self, method):
+    def run_initial_experimentation_stage(self, method: str):
+        r"""Run initial experimentation stage for the method.
+        Compute projection (if needed), fit outcome model, save data in 
+        self.pref_data_dict.
+        """
 
         for pe_strategy in self.pe_strategies:
             self.compute_projections(method, pe_strategy)
             self.fit_outcome_model(method, pe_strategy)        
 
-    def run_PE_stage(self, method):
-        # initial result stored in self.pref_data_dict
+    def run_PE_stage(self, method: str):
+        r"""Run preference exploration stage. """
 
         for pe_strategy in self.pe_strategies:
-
-            # self.generate_random_pref_data(method, pe_strategy, n=1)
-            # TODO: if we also gather comps in the first stage, is this step needed?
 
             if any(method.startswith(header) for header in self.subspace_methods_headers):
                 self.compute_subspace_diagnostics(method, pe_strategy, n_test=1000)
@@ -787,11 +800,6 @@ class RetrainingBopeExperiment:
             start_time = time.time()
 
             print(f"===== Running PE using {method} with {pe_strategy} =====")
-
-            # self.PE_session_results[method][pe_strategy] = []
-            self.PE_session_results[method][pe_strategy].append(
-                self.find_max_posterior_mean(method, pe_strategy)
-            )
 
             for j in range(self.n_check_post_mean):
 
@@ -818,11 +826,10 @@ class RetrainingBopeExperiment:
             self.PE_time_dict[(method, pe_strategy)] = PE_time # will be logged later
 
 
-    def run_BO_experimentation_stage(self, method, n_BO_iters): 
+    def run_BO_experimentation_stage(self, method: str, meta_iter: int): 
+        r"""Run experimentation stage where candidates are generated using BO. """
         for pe_strategy in self.pe_strategies:
             print(f"===== Running BO experimentation stage using {method} with {pe_strategy} =====")
-            # TODO: shouldn't be resetting this
-            # self.final_candidate_results[method][pe_strategy] = []
 
             if self.include_xp1_candidates:
                 best_so_far = max(self.util_func(self.initial_Y)).item()
@@ -858,9 +865,10 @@ class RetrainingBopeExperiment:
                  
             print("best so far before BO exp stage: ", best_so_far)
 
-            for iter in range(n_BO_iters):
+            for iter in range(self.n_BO_iters):
+                cum_n_BO_iters_so_far = meta_iter * (self.n_BO_iters)
                 best_so_far = self.generate_BO_candidate(
-                    method, pe_strategy, iter, best_so_far)
+                    method, pe_strategy, iter, best_so_far, cum_n_BO_iters_so_far)
 
                 # TODO: update projection (optional), update outcome model
                 # self.compute_projections(method, pe_strategy)
@@ -868,13 +876,17 @@ class RetrainingBopeExperiment:
 
 
 
-# ======== BOPE loop ========
+# ======== Further putting together into the BOPE loop ========
 
 
     def run_BOPE_loop(self):
-        # handle multiple trials
-        # have a flag for whether the fitting is successful or not
-
+        r"""
+        Run the full BOPE pipeline for all self.methods x self.pe_strategies.
+        - Generate random initial experimentation data
+        - Run initial experimentation stage
+        - Alternate running PE stage and BO stage for self.n_meta_iters times
+        """
+    
         # all methods use the same initial experimentation data
         self.generate_random_experiment_data(
             self.initial_experimentation_batch,
@@ -890,7 +902,7 @@ class RetrainingBopeExperiment:
                 for meta_iter in range(self.n_meta_iters):
                     print(f"========== Running PE-BO meta-iter {meta_iter} ==========")
                     self.run_PE_stage(method)
-                    self.run_BO_experimentation_stage(method, self.n_BO_iters)
+                    self.run_BO_experimentation_stage(method, meta_iter)
 
                     torch.save(self.PE_session_results, self.output_path +
                             'PE_session_results_trial=' + str(self.trial_idx) + '.th')
