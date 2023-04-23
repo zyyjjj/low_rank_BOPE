@@ -99,6 +99,8 @@ class RetrainingBopeExperiment:
         "n_check_post_mean": 20,
         "every_n_comps": 3,
         "n_BO_iters": 10,
+        "BO_batch_size": 1,
+        "n_meta_iters": 1, 
         "verbose": True,
         "dtype": torch.double,
         "num_restarts": 20,
@@ -172,8 +174,8 @@ class RetrainingBopeExperiment:
 
         # save results
         self.PE_time_dict = {}
-        self.PE_session_results = defaultdict(dict) # [method][pe_strategy]
-        self.final_candidate_results = defaultdict(dict) # [method][pe_strategy]
+        self.PE_session_results = defaultdict(defaultdict_list) # [method][pe_strategy] # TODO: checkxf
+        self.final_candidate_results = defaultdict(defaultdict_list) # [method][pe_strategy] # TODO: check
         self.subspace_diagnostics = defaultdict(defaultdict_list) # [(method, pe_strategy)][diag_metric] = list
         self.util_postmean_landscape = defaultdict(list) # [(method, pe_strategy)] = list of statistics tuples
 
@@ -237,7 +239,9 @@ class RetrainingBopeExperiment:
                 Y_selected = Y
             else: # pca_eubo_rt, pca_postquant_rt, pca_postmax_rt
                 Y_selected = self.subspace_training_Y[(method, pe_strategy)]
-            print("Y_selected shape: ", Y_selected.shape)
+            
+            if self.verbose:
+                print("Y_selected shape: ", Y_selected.shape)
             
             projection = fit_pca(
                 Y_selected,
@@ -255,7 +259,8 @@ class RetrainingBopeExperiment:
 
             util_vals = self.pref_data_dict[(method, pe_strategy)]["util_vals"]
             weights = compute_weights(util_vals.squeeze(1), weights_type="rank_bin")
-            print("weights: ", weights)
+            if self.verbose:
+                print("weights: ", weights)
 
             projection = fit_pca(
                 Y, 
@@ -375,7 +380,8 @@ class RetrainingBopeExperiment:
         train_X = torch.cat([self.initial_X, new_X], dim=0)
         train_Y = torch.cat([self.initial_Y, new_Y], dim=0)
         print(f"Fitting outcome model using {method} and {pe_strategy}")
-        print(f"train_X.shape: {train_X.shape}", f"train_Y.shape: {train_Y.shape}")
+        if self.verbose:   
+            print(f"train_X.shape: {train_X.shape}", f"train_Y.shape: {train_Y.shape}")
         
         outcome_model = SingleTaskGP(
             train_X=train_X, 
@@ -437,7 +443,7 @@ class RetrainingBopeExperiment:
             train_util_vals = self.pref_data_dict[(method, pe_strategy)]["util_vals"]
 
             print(
-                f"== Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy}")
+                f"== Running {i+1}/{self.every_n_comps} preference learning using {pe_strategy} ==")
 
             fit_model_succeed = False
 
@@ -446,7 +452,8 @@ class RetrainingBopeExperiment:
                     util_model = self.fit_util_model(
                         method, pe_strategy
                     )
-                    print("Pref model fitting successful")
+                    if self.verbose:
+                        print("Pref model fitting successful")
                     fit_model_succeed = True
                     break
                 except (ValueError, RuntimeError):
@@ -484,8 +491,9 @@ class RetrainingBopeExperiment:
                             acqf_vals.append(acqf_val.item())
 
                             found_valid_candidate = True
-                            print("EUBO mean, sd, min_val, max_val, quantile_vals: ", acqf_landscape)
-                            print("EUBO candidate acqf value: ", acqf_val)
+                            if self.verbose:   
+                                print("EUBO mean, sd, min_val, max_val, quantile_vals: ", acqf_landscape)
+                                print("EUBO candidate acqf value: ", acqf_val)
                             # TODO: save diagnostics
                             break
                         except (ValueError, RuntimeError) as error:
@@ -520,7 +528,8 @@ class RetrainingBopeExperiment:
             )
             train_Y = torch.cat((train_Y, cand_Y))
             train_util_vals = torch.cat((train_util_vals, cand_util_val))
-            print('train_Y, train_comps shape: ', train_Y.shape, train_comps.shape)
+            if self.verbose:
+                print('train_Y, train_comps shape: ', train_Y.shape, train_comps.shape)
 
             if method == "pca_eubo_rt":
                 self.subspace_training_Y[(method, pe_strategy)] = torch.cat(
@@ -579,10 +588,10 @@ class RetrainingBopeExperiment:
             bounds=self.problem.bounds,
             inner_function=self.outcome_models_dict[(method, pe_strategy)]
         )
-        print("util posterior mean function mean, sd, min_val, max_val, quantile_vals: ", 
-              util_posterior_landscape)
-        # TODO: util posterior seems super flat and almost 0 everywhere if we sample directly in the outcome space
-        # Trying out: composing util model with outcome model -- is it still as flat?
+        if self.verbose:
+            print("util posterior mean function mean, sd, min_val, max_val, quantile_vals: ", 
+                   util_posterior_landscape)
+
         self.util_postmean_landscape[(method, pe_strategy)].append(util_posterior_landscape)
 
         within_result = {
@@ -643,32 +652,33 @@ class RetrainingBopeExperiment:
             outcome_model=self.outcome_models_dict[(method, pe_strategy)],
             objective=pref_obj,
             problem=self.problem,
-            q=1,
+            q=self.BO_batch_size, 
             acqf_name="qNEI",
             X=baseline_X, 
             seed=self.trial_idx
         )
         new_cand_X_posterior = self.outcome_models_dict[(method, pe_strategy)].posterior(new_cand_X)
-        new_cand_X_posterior_mean_util = util_model.posterior(new_cand_X_posterior.mean).mean.item()
+        new_cand_X_posterior_mean_util = util_model.posterior(new_cand_X_posterior.mean).mean
         new_cand_X_posterior_var = new_cand_X_posterior.variance
         print('new_cand_X_posterior_mean_util: ', new_cand_X_posterior_mean_util)
-        print('average new_cand_X_posterior_var: ', torch.mean(new_cand_X_posterior_var))
+        # print('average new_cand_X_posterior_var: ', torch.mean(new_cand_X_posterior_var))
         new_cand_Y = self.problem(new_cand_X).detach()
 
-        qneiuu_util = self.util_func(self.problem.evaluate_true(new_cand_X)).item()
+        qneiuu_util = self.util_func(self.problem.evaluate_true(new_cand_X)) # shape (q, 1)
         print(
-            f"{method}-{pe_strategy} qNEIUU candidate utility: {qneiuu_util:.5f}"
+            f"({method}, {pe_strategy})-qNEIUU candidate utility: {qneiuu_util}"
         )
 
         if best_so_far is None:
-            best_so_far = qneiuu_util
+            best_so_far = torch.max(qneiuu_util).item()
         else:
-            best_so_far = max(best_so_far, qneiuu_util)
-        print(f"best so far at BO iter {BO_iter}: {best_so_far}")
+            best_so_far = max(best_so_far, torch.max(qneiuu_util).item())
+
+        print(f"best so far at BO iter {BO_iter}: ", best_so_far)
 
         exp_result = {
             "candidate": new_cand_X,
-            "acqf_val": acqf_val.item(),
+            "acqf_val": acqf_val.tolist(),
             "candidate_posterior_mean_util": new_cand_X_posterior_mean_util,
             # "candidate_posterior_variance": new_cand_X_posterior.variance,
             "candidate_util": qneiuu_util,
@@ -757,7 +767,7 @@ class RetrainingBopeExperiment:
 # ======== Putting it together into steps ========
 
 
-    def run_first_experimentation_stage(self, method):
+    def run_initial_experimentation_stage(self, method):
 
         for pe_strategy in self.pe_strategies:
             self.compute_projections(method, pe_strategy)
@@ -768,7 +778,7 @@ class RetrainingBopeExperiment:
 
         for pe_strategy in self.pe_strategies:
 
-            self.generate_random_pref_data(method, pe_strategy, n=1)
+            # self.generate_random_pref_data(method, pe_strategy, n=1)
             # TODO: if we also gather comps in the first stage, is this step needed?
 
             if any(method.startswith(header) for header in self.subspace_methods_headers):
@@ -778,7 +788,7 @@ class RetrainingBopeExperiment:
 
             print(f"===== Running PE using {method} with {pe_strategy} =====")
 
-            self.PE_session_results[method][pe_strategy] = []
+            # self.PE_session_results[method][pe_strategy] = []
             self.PE_session_results[method][pe_strategy].append(
                 self.find_max_posterior_mean(method, pe_strategy)
             )
@@ -791,7 +801,7 @@ class RetrainingBopeExperiment:
                 )
                 # relearn subspace if method calls for retraining
                 if method.endswith("rt"):
-                    print("Retraining")
+                    print(f"Retraining using {method}")
                     prev_projection = self.projections_dict[(method, pe_strategy)]
                     self.compute_projections(method, pe_strategy)
                     _, _, g = compute_grassmannian(
@@ -808,22 +818,45 @@ class RetrainingBopeExperiment:
             self.PE_time_dict[(method, pe_strategy)] = PE_time # will be logged later
 
 
-    def run_second_experimentation_stage(self, method, n_BO_iters):
+    def run_BO_experimentation_stage(self, method, n_BO_iters): 
         for pe_strategy in self.pe_strategies:
-            print(f"===== Running 2nd experimentation stage using {method} with {pe_strategy} =====")
-            self.final_candidate_results[method][pe_strategy] = []
+            print(f"===== Running BO experimentation stage using {method} with {pe_strategy} =====")
+            # TODO: shouldn't be resetting this
+            # self.final_candidate_results[method][pe_strategy] = []
 
             if self.include_xp1_candidates:
-                best_so_far = max(self.util_func(self.initial_Y))
+                best_so_far = max(self.util_func(self.initial_Y)).item()
             else:
-                # use the last util-posterior-mean-maximizing x as the first evaluation point
-                self.BO_data_dict[(method, pe_strategy)]["X"] = \
-                    self.PE_session_results[method][pe_strategy][-1]["candidate"]
-                self.BO_data_dict[(method, pe_strategy)]["Y"] = \
-                    self.problem(self.BO_data_dict[(method, pe_strategy)]["X"])
-                best_so_far = self.util_func(self.BO_data_dict[(method, pe_strategy)]["Y"]).item()
-        
-            print(f"best so far before 2nd exp stage: {best_so_far}")
+                # the first point to evaluate is the last 
+                # posterior-mean-util-maximizing point from the PE stage
+                BO_X_so_far = self.BO_data_dict[(method, pe_strategy)].get("X",  torch.tensor([]))
+                BO_Y_so_far = self.BO_data_dict[(method, pe_strategy)].get("Y",  torch.tensor([]))
+
+                if self.verbose:
+                    print(f"BO_X_so_far.shape: {BO_X_so_far.shape}", f"BO_Y_so_far.shape: {BO_Y_so_far.shape}")
+
+                tmp_X = self.PE_session_results[method][pe_strategy][-1]["candidate"]
+                tmp_Y = self.problem(tmp_X)
+                tmp_util = self.util_func(tmp_Y).item()
+
+                self.BO_data_dict[(method, pe_strategy)]["X"] = torch.cat(
+                    (BO_X_so_far, tmp_X),
+                    dim = 0
+                )
+
+                self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
+                    (BO_Y_so_far, tmp_Y),
+                    dim = 0
+                )
+
+                if len(self.final_candidate_results[method][pe_strategy]) > 0:
+                    best_so_far = max(
+                        self.final_candidate_results[method][pe_strategy][-1]["best_util_so_far"],
+                        tmp_util)
+                else:
+                    best_so_far = tmp_util
+                 
+            print("best so far before BO exp stage: ", best_so_far)
 
             for iter in range(n_BO_iters):
                 best_so_far = self.generate_BO_candidate(
@@ -851,20 +884,24 @@ class RetrainingBopeExperiment:
         for method in self.methods:
             try:
                 print(f"============= Running {method} =============")
-                self.run_first_experimentation_stage(method)
-                self.run_PE_stage(method)
-                self.run_second_experimentation_stage(method, self.n_BO_iters)
 
-                torch.save(self.PE_session_results, self.output_path +
-                        'PE_session_results_trial=' + str(self.trial_idx) + '.th')
-                torch.save(self.final_candidate_results, self.output_path +
-                        'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
-                torch.save(self.pref_data_dict, self.output_path +
-                        'pref_data_trial=' + str(self.trial_idx) + '.th')
-                torch.save(dict(self.subspace_diagnostics), self.output_path +
-                        'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
-                torch.save(self.util_postmean_landscape, self.output_path +
-                        'util_postmean_trial=' + str(self.trial_idx) + '.th')
+                self.run_initial_experimentation_stage(method)
+
+                for meta_iter in range(self.n_meta_iters):
+                    print(f"========== Running PE-BO meta-iter {meta_iter} ==========")
+                    self.run_PE_stage(method)
+                    self.run_BO_experimentation_stage(method, self.n_BO_iters)
+
+                    torch.save(self.PE_session_results, self.output_path +
+                            'PE_session_results_trial=' + str(self.trial_idx) + '.th')
+                    torch.save(self.final_candidate_results, self.output_path +
+                            'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
+                    torch.save(self.pref_data_dict, self.output_path +
+                            'pref_data_trial=' + str(self.trial_idx) + '.th')
+                    torch.save(dict(self.subspace_diagnostics), self.output_path +
+                            'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
+                    torch.save(self.util_postmean_landscape, self.output_path +
+                            'util_postmean_trial=' + str(self.trial_idx) + '.th')
             
             except Exception as e:
                 print('Error occurred: ', e)
