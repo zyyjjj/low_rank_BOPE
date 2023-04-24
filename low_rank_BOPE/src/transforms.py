@@ -654,10 +654,8 @@ def get_latent_ineq_constraints(projection: Tensor, original_bounds: Tensor):
     
 
 def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs):
-
     r""" 
     Compute weights for each datapoint, later used in weighted PCA.
-    This function is in progress.
 
     Args:
         util_vals: shape `(num_samples,)` tensor of sample utility values;
@@ -677,12 +675,12 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs)
         k = kwargs.get("k", 10) # TODO: come back to setting k more carefully
         utils_argsort = np.argsort(-np.asarray(util_vals))
         ranks = np.argsort(utils_argsort)
-        weights = 1 / (k * len(util_vals) + ranks) # TODO: should we normalize?
+        weights = 1 / (k * len(util_vals) + ranks) 
 
     elif weights_type == "rank_bin":
         # throw away the bottom x number of points
         # default value is 2 because we usually add a pair of points from EUBO
-        bottom_num_points = kwargs.get("bottom_num_points", 2)
+        bottom_num_points = kwargs.get("num_points_to_discard", 2)
         
         # set weights for the selected indices to 1, others to 0
         ranks = torch.argsort(torch.argsort(util_vals))
@@ -699,14 +697,12 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs)
     return torch.tensor(weights).unsqueeze(1)
 
 
-
 def fit_pca(
     train_Y: Tensor, 
     var_threshold: float=0.9, 
     weights: Optional[Tensor] = None,
     standardize: Optional[bool] = True
 ):
-
     r"""
     Perform PCA on supplied data with optional weights.
 
@@ -727,14 +723,10 @@ def fit_pca(
             f"weights shape {weights.shape} does not match train_Y shape {train_Y.shape}, "
         assert (weights >= 0).all(), \
             "weights must be nonnegative"
-            
-        # remove the entries with weight=0 # TODO: check this
-        valid = torch.nonzero(weights.squeeze(1)).squeeze(1)
-        print("valid: ", valid)
 
-        print("valid shape: ", valid.shape, "weights shape: ", weights.shape, "train_Y shape: ", train_Y.shape)
-        weighted_mean = (train_Y[valid] * weights[valid]).sum(dim=0) / weights[valid].sum(0)
-        train_Y_centered = weights[valid] * (train_Y[valid] - weighted_mean)
+        print("weights shape: ", weights.shape, "train_Y shape: ", train_Y.shape)
+        weighted_mean = (train_Y * weights).sum(dim=0) / weights.sum(0)
+        train_Y_centered = weights * (train_Y - weighted_mean)
 
     else:
         # unweighted pca
