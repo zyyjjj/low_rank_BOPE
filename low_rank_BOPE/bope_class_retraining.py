@@ -112,6 +112,8 @@ class RetrainingBopeExperiment:
         "true_axes": None, # specify these for synthetic problems
         "standardize": True,
         "include_xp1_candidates": False, # if true, include candidate designs in the first exp stage too in BO
+        "wpca_type": "rank_cts",
+        "wpca_options": {"k": 10, "num_points_to_discard": 2}
     }
 
     def __init__(
@@ -134,7 +136,6 @@ class RetrainingBopeExperiment:
             trial_idx: index of the trial; controls randomness
             output_path: path to save the experiment results to
         """
-
 
         # self.attr_list stores default values, then overwrite with kwargs
         for key in self.attr_list.keys():
@@ -245,7 +246,9 @@ class RetrainingBopeExperiment:
         """
         
         projection = None
-        Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
+        Y = self.pref_data_dict[(method, pe_strategy)]["Y"] 
+        # TODO: this is not right; don't retrain on fake points
+        # how do I save the real outcome points observed so far?
 
         if method.startswith("pca"): 
             # Multiple retraining strategies we can try:
@@ -288,16 +291,29 @@ class RetrainingBopeExperiment:
 
         # TODO: currently not running well, come back to this
         elif method.startswith("wpca_est"):
-            if "wpca_est" in self.util_models_dict:
+
+            new_Y = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
+            train_Y = torch.cat([self.initial_Y, new_Y], dim=0)
+
+            if (method, pe_strategy) in self.util_models_dict:
+                print("Using posterior mean of util model to compute weights")
                 # use posterior mean as utility value estimate, if a model exists
-                util_vals_est = self.util_models_dict["w_pca_est"].posterior(Y).mean
-                weights = compute_weights(util_vals_est.squeeze(1), weights_type="rank_bin")
+
+                util_vals_est = self.util_models_dict[(method, pe_strategy)].posterior(train_Y).mean
+
+                print("train_Y.shape: ", train_Y.shape, "util_vals_est.shape: ", util_vals_est.shape)
+
+                weights = compute_weights(
+                    util_vals_est.squeeze(1), 
+                    weights_type=self.wpca_type,
+                    wpca_options=self.wpca_options
+                )
             else:
                 # otherwise, use uniform weights
-                weights = torch.ones((Y.shape[0],1))
+                weights = torch.ones((train_Y.shape[0],1))
             
             projection = fit_pca(
-                Y, 
+                train_Y, 
                 var_threshold=self.pca_var_threshold, 
                 weights=weights,
                 standardize=self.standardize
@@ -333,7 +349,7 @@ class RetrainingBopeExperiment:
             # retain the corresponding columns in V
             self.projections_dict[(method, pe_strategy)] = torch.tensor(np.transpose(V[:, dims_to_keep]))
 
-        elif method == "spca_est":
+        elif method == "spca_est": # TODO: implement this!
             pass
 
         elif method == "random_linear_proj":
@@ -418,7 +434,7 @@ class RetrainingBopeExperiment:
         self.outcome_models_dict[(method, pe_strategy)] = outcome_model
 
 
-    def fit_util_model(self, method: str, pe_strategy: str):
+    def fit_util_model(self, method: str, pe_strategy: str, save_model: bool = False):
         r"""Fit and return utility model for given method and pe_strategy."""
 
         train_Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
@@ -438,6 +454,9 @@ class RetrainingBopeExperiment:
         mll_util = PairwiseLaplaceMarginalLogLikelihood(
             util_model.likelihood, util_model)
         fit_gpytorch_mll(mll_util)
+
+        if save_model:
+            self.util_models_dict[(method, pe_strategy)] = util_model # TODO: will this increase memory consumption a lot?
 
         return util_model
 
@@ -464,7 +483,7 @@ class RetrainingBopeExperiment:
             for _ in range(3):
                 try:
                     util_model = self.fit_util_model(
-                        method, pe_strategy
+                        method, pe_strategy, save_model=False
                     )
                     if self.verbose:
                         print("Pref model fitting successful")
@@ -579,7 +598,7 @@ class RetrainingBopeExperiment:
         # But this function is called every three times run_pref_learning() is called
         # so the amount of duplicated effort is not large 
         util_model = self.fit_util_model(
-            method, pe_strategy
+            method, pe_strategy, save_model=True
         )
         sampler = SobolQMCNormalSampler(num_pref_samples)
         pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
