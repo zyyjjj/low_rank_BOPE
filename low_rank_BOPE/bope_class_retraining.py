@@ -168,7 +168,7 @@ class RetrainingBopeExperiment:
             # if "pca" is not run and initial_latent_dim is not specified
             # set self.initial_latent_dim by hand
             self.methods = methods
-            if not self.initial_latent_dim:
+            if self.initial_latent_dim is None:
                 self.initial_latent_dim = self.outcome_dim // 3
         # NOTE: method is suffixed "_rt" if retraining
         # the subspace is updated during PE only if the method ends with "rt"
@@ -246,18 +246,17 @@ class RetrainingBopeExperiment:
         """
         
         projection = None
-        Y = self.pref_data_dict[(method, pe_strategy)]["Y"] 
-        # TODO: this is not right; don't retrain on fake points
-        # how do I save the real outcome points observed so far?
+
+        new_Y = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
+        train_Y = torch.cat([self.initial_Y, new_Y], dim=0)
 
         if method.startswith("pca"): 
-            # Multiple retraining strategies we can try:
-            # "pca_all_rt", "pca_eubo_rt", "pca_postquant_rt", "pca_postmax_rt"
-            # (the ones based on true util values are not practical as we don't have that info in practice)
 
-            if method in ("pca", "pca_all_rt"):
-                Y_selected = Y
-            else: # pca_eubo_rt, pca_postquant_rt, pca_postmax_rt
+            if method in ("pca", "pca_rt"):
+                Y_selected = train_Y
+            else:
+                # methods that include fake points from outcome model posterior 
+                # pca_all_rt, pca_eubo_rt, pca_postquant_rt, pca_postmax_rt
                 Y_selected = self.subspace_training_Y[(method, pe_strategy)]
             
             if self.verbose:
@@ -277,29 +276,29 @@ class RetrainingBopeExperiment:
             # could be "wpca_true" or "wpca_true_rt"
             # though weighting without retraining isn't really reasonable
 
-            util_vals = self.pref_data_dict[(method, pe_strategy)]["util_vals"]
-            weights = compute_weights(util_vals.squeeze(1), weights_type="rank_bin")
+            util_vals = self.util_func(train_Y).detach()
+            weights = compute_weights(
+                    util_vals.squeeze(1), 
+                    weights_type=self.wpca_type,
+                    wpca_options=self.wpca_options
+                )
             if self.verbose:
                 print("weights: ", weights)
 
             projection = fit_pca(
-                Y, 
+                train_Y, 
                 var_threshold=self.pca_var_threshold,
                 weights=weights,
                 standardize=self.standardize
             ) 
 
-        # TODO: currently not running well, come back to this
         elif method.startswith("wpca_est"):
 
-            new_Y = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
-            train_Y = torch.cat([self.initial_Y, new_Y], dim=0)
-
             if (method, pe_strategy) in self.util_models_dict:
-                print("Using posterior mean of util model to compute weights")
                 # use posterior mean as utility value estimate, if a model exists
+                print("Using posterior mean of util model to compute weights")
 
-                util_vals_est = self.util_models_dict[(method, pe_strategy)].posterior(train_Y).mean
+                util_vals_est = self.util_models_dict[(method, pe_strategy)].posterior(train_Y).mean.detach()
 
                 print("train_Y.shape: ", train_Y.shape, "util_vals_est.shape: ", util_vals_est.shape)
 
@@ -330,27 +329,58 @@ class RetrainingBopeExperiment:
             # this is what we used to call "pcr"
             # could be "spca_true", "spca_true_rt"
 
-            P, _, V = torch.svd(Y - Y.mean(dim=0)) # TODO: need standardization here?
+            train_Y_centered = train_Y - train_Y.mean(dim=0)
+            if self.standardize:
+                P, _, V = torch.svd(train_Y_centered/train_Y_centered.std(dim=0))
+            else:
+                P, _, V = torch.svd(train_Y_centered)
+
+            util_vals = self.util_func(train_Y).detach()
 
             # then run regression from P (PCs) onto util_vals
             reg = LinearRegression().fit(
                 np.array(P), 
-                np.array(self.pref_data_dict[(method, pe_strategy)]["util_vals"])
+                np.array(util_vals)
             ) 
             
             # select top `self.initial_latent_dim` entries of PC_coeff
-            # TODO: not sure this is the best thing to do, 
-            # alternative is to have it always align with pca
             dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.initial_latent_dim:]
             print('dims_to_keep: ', dims_to_keep)
             if len(dims_to_keep.shape) == 2:
                 dims_to_keep = dims_to_keep[0]
             print('dims_to_keep after processing: ', dims_to_keep) 
             # retain the corresponding columns in V
-            self.projections_dict[(method, pe_strategy)] = torch.tensor(np.transpose(V[:, dims_to_keep]))
+            projection = torch.tensor(np.transpose(V[:, dims_to_keep]))
 
-        elif method == "spca_est": # TODO: implement this!
-            pass
+        elif method.startswith("spca_est"): 
+            if (method, pe_strategy) in self.util_models_dict:
+                util_vals_est = self.util_models_dict[(method, pe_strategy)].posterior(train_Y).mean.detach()
+                train_Y_centered = train_Y - train_Y.mean(dim=0)
+                if self.standardize:
+                    P, _, V = torch.svd(train_Y_centered/train_Y_centered.std(dim=0))
+                else:
+                    P, _, V = torch.svd(train_Y_centered)
+
+                reg = LinearRegression().fit(
+                    np.array(P), 
+                    np.array(util_vals_est)
+                ) 
+
+                dims_to_keep = np.argsort(np.abs(reg.coef_))[-self.initial_latent_dim:]
+                if len(dims_to_keep.shape) == 2:
+                    dims_to_keep = dims_to_keep[0]
+                print('dims_to_keep: ', dims_to_keep) 
+                # retain the corresponding columns in V
+                projection = torch.tensor(np.transpose(V[:, dims_to_keep]))
+
+            else:
+                # initialize with just PCA
+                projection = fit_pca(
+                    train_Y,
+                    var_threshold=self.pca_var_threshold, 
+                    weights=None,
+                    standardize=self.standardize
+                ) 
 
         elif method == "random_linear_proj":
             projection = generate_random_projection(
@@ -848,7 +878,7 @@ class RetrainingBopeExperiment:
     def run_BO_experimentation_stage(self, method: str, meta_iter: int): 
         r"""Run experimentation stage where candidates are generated using BO. """
         for pe_strategy in self.pe_strategies:
-            print(f"===== Running BO experimentation stage using {method} with {pe_strategy} =====")
+            print(f"===== Running BO experimentation stage {meta_iter} using {method} with {pe_strategy} =====")
 
             if self.include_xp1_candidates:
                 best_so_far = max(self.util_func(self.initial_Y)).item()
