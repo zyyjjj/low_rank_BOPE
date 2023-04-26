@@ -6,7 +6,7 @@ from botorch.test_functions import SyntheticTestFunction
 
 PARAMS = {
     'demand_mean' : 5, 
-    'demand_std' : 3,
+    'demand_std' : 2,
     'lead_time' : 10, # tau in the slides
     'stockout_penalty' : 0.1, # p in the slides
     'holding_cost' : 0.01, # h in the slides
@@ -75,13 +75,15 @@ class Inventory(SyntheticTestFunction):
     def __init__(
         self,
         duration: int,
-        init_inventory: int = 100, # keep it fixed for now
-        x_scaling: int = 100,
+        init_inventory: int = 50, # keep it fixed for now
+        x_baseline: int = 50,
+        x_scaling: int = 50, # scale x to be between 50 and 100
         params: dict = PARAMS
     ):
         super().__init__()
         self.outcome_dim = duration
         self.init_inventory = init_inventory
+        self.x_baseline = x_baseline
         self.x_scaling = x_scaling
         self.params = params
 
@@ -91,21 +93,27 @@ class Inventory(SyntheticTestFunction):
             X: `num_samples x 2` tensor, where first column is Q and second is R
         """
         Y = []
-        for x in X:
-            Y.append(self.evaluate_true_single(self.x_scaling * x))
+        for i, x in enumerate(X):
+            Y.append(self.evaluate_true_single(
+                i, self.x_baseline + self.x_scaling * x))
         
         return torch.vstack(Y)
 
-    def evaluate_true_single(self, x: Tensor):
+    def evaluate_true_single(self, i: int, x: Tensor):
         r"""
         Simulate an inventory trajectory for one policy.
         Args:
+            i: index of x in all data, used to set random seed
             x: 2-dim tensor, where first entry is Q and second is R
         """
 
+        # np.random.seed(i)
+        # init_inventory = np.random.rand() * 50 + 50 # doesn't work very well
+        init_inventory = self.init_inventory
+
         x_np = x.detach().numpy()
         state = {
-            'inventory' : self.init_inventory, 
+            'inventory' : init_inventory, 
             'days_left' : -1, 
             'cost' : 0
         }
