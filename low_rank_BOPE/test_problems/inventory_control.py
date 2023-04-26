@@ -80,6 +80,14 @@ class Inventory(SyntheticTestFunction):
         x_scaling: int = 50, # scale x to be between 50 and 100
         params: dict = PARAMS
     ):
+        r"""
+        Args:
+            duration: number of days to simulate
+            init_inventory: initial inventory level
+            x_baseline: lower bound for actual values of Q,R params
+            x_scaling: scale Q,R values to be in [x_baseline, x_baseline + x_scaling]
+            params: dictionary of parameters for running the simulation
+        """
         super().__init__()
         self.outcome_dim = duration
         self.init_inventory = init_inventory
