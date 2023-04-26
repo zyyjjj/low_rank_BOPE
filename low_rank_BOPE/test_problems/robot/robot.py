@@ -133,6 +133,8 @@ def spot_mini_mini_trajectory(
     # a list of tuples (x,y,z) indicating the position of the robot's centroid
     return pos_trajectory 
 
+#################################################################################
+#################################################################################
 
 # Outcome function
 class SpotMiniMiniProblem(BaseTestProblem):
@@ -229,3 +231,59 @@ class SpotMiniMiniProblem(BaseTestProblem):
             X: `num_samples x dim` tensor of unstandardized inputs
         """
         return X * (bounds[1] - bounds[0]) + bounds[0]
+    
+#################################################################################
+
+# Utility function
+class RobotUtil(torch.nn.Module):
+    r"""
+    Utility function for robot movement.
+    Idea: 
+    - reward moving forward in x direction
+    - penalize drift and fluctuations in y direction
+    - penalize fluctuations in z direction
+    """
+
+    def __init__(
+        self,
+        y_drift_penalty: float = 0.0,
+        y_var_penalty: float = 0.0,
+        z_var_penalty: float = 0.0,
+    ):
+        super().__init__()
+        self.y_drift_penalty = y_drift_penalty
+        self.y_var_penalty = y_var_penalty
+        self.z_var_penalty = z_var_penalty
+
+    def forward(self, Y: Tensor):
+        r"""
+        Args:
+            Y: `num_samples x outcome_dim` tensor of outcomes
+        """
+
+        res = []
+        for y in Y:
+            res.append(self.compute_util_one_outcome(y))
+
+        return torch.stack(res)
+
+
+    def compute_util_one_outcome(self, y: Tensor):
+        r"""
+        Args:
+            y: `outcome_dim` tensor of outcomes
+        """
+
+        y = y.detach().numpy()
+
+        # deconstruct into x,y,z time series
+        x_vec = y[:len(y)//3]
+        y_vec = y[len(y)//3:2*len(y)//3]
+        z_vec = y[2*len(y)//3:]
+
+        util = (x_vec[-1] - x_vec[0]) + \
+            self.y_drift_penalty * (y_vec[-1] - y_vec[0]) + \
+            self.y_var_penalty * np.std(y_vec) + \
+            self.z_var_penalty * np.std(z_vec)
+
+        return util
