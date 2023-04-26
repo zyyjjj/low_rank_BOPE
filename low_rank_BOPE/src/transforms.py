@@ -653,7 +653,11 @@ def get_latent_ineq_constraints(projection: Tensor, original_bounds: Tensor):
     return latent_cons
     
 
-def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs):
+def compute_weights(
+    util_vals: Tensor, 
+    weights_type: str, 
+    wpca_options: dict
+):
     r""" 
     Compute weights for each datapoint, later used in weighted PCA.
 
@@ -664,15 +668,17 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs)
             "rank_cts": rank weighting in Tripp et al. 2020
             "rank_bin": assign weight 0 to bottom points
             "power": 
-        kwargs: settings for specific weight types
+        wpca_options: settings for specific weight types
 
     Returns:
         weights: `num_samples x 1` tensor of weights for each data point
     """
 
+    util_vals = util_vals.detach().numpy()
+
     if weights_type == "rank_cts":
         # follows Tripp et al. paper
-        k = kwargs.get("k", 10) # TODO: come back to setting k more carefully
+        k = wpca_options.get("k", 10) 
         utils_argsort = np.argsort(-np.asarray(util_vals))
         ranks = np.argsort(utils_argsort)
         weights = 1 / (k * len(util_vals) + ranks) 
@@ -680,7 +686,7 @@ def compute_weights(util_vals: Tensor, weights_type: str = "rank_bin", **kwargs)
     elif weights_type == "rank_bin":
         # throw away the bottom x number of points
         # default value is 2 because we usually add a pair of points from EUBO
-        bottom_num_points = kwargs.get("num_points_to_discard", 2)
+        bottom_num_points = wpca_options.get("num_points_to_discard", 2)
         
         # set weights for the selected indices to 1, others to 0
         ranks = torch.argsort(torch.argsort(util_vals))

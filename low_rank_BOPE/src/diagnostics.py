@@ -402,7 +402,7 @@ def check_util_model_fit(
             posterior_util_mean.detach().numpy(), 
             test_util_vals.detach().numpy()
         )
-        print(f"Kendall's tau rank correlation: {pref_prediction_accuracy}, p-value: {p}")
+        # print(f"Kendall's tau rank correlation: {pref_prediction_accuracy}, p-value: {p}")
     else:
         # compute pref prediction accuracy for adjacent pairs
         # the prediction for pair (i, i+1) is correct if
@@ -482,7 +482,7 @@ def check_overall_fit(
             posterior_util_mean.detach().numpy(), 
             test_util_vals.detach().numpy()
         )
-        print(f"Overall model accuracy Kendall's tau: {pref_prediction_accuracy}, p-value: {p}")
+        # print(f"Overall model accuracy Kendall's tau: {pref_prediction_accuracy}, p-value: {p}")
     else:
         # compute pref prediction accuracy for adjacent pairs
         # the prediction for pair (i, i+1) is correct if
