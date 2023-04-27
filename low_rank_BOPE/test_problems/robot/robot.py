@@ -177,7 +177,7 @@ class SpotMiniMiniProblem(BaseTestProblem):
         self.dim=dim
         if dim > 5: 
             raise ValueError("dim should be <= 5!")
-        self._bounds = torch.tensor([[0.]*dim, [1.]*dim])
+        self._bounds = torch.tensor([[0., 1.]*dim])
         super().__init__(noise_std=noise_std, negate=negate)
 
         self.max_timesteps = max_timesteps
@@ -265,7 +265,7 @@ class RobotUtil(torch.nn.Module):
         for y in Y:
             res.append(self.compute_util_one_outcome(y))
 
-        return torch.stack(res)
+        return torch.tensor(res).unsqueeze(1)
 
 
     def compute_util_one_outcome(self, y: Tensor):
