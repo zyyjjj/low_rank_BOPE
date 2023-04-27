@@ -7,7 +7,6 @@
 import sys
 
 sys.path.append('/home/yz685/low_rank_BOPE')
-sys.path.append(['..', '../..', '../../..'])
 
 from typing import Dict, Optional, Tuple
 
