@@ -113,7 +113,8 @@ class RetrainingBopeExperiment:
         "standardize": True,
         "include_xp1_candidates": False, # if true, include candidate designs in the first exp stage too in BO
         "wpca_type": "rank_cts",
-        "wpca_options": {"k": 10, "num_points_to_discard": 2}
+        "wpca_options": {"k": 10, "num_points_to_discard": 2},
+        "compute_true_opt": False
     }
 
     def __init__(
@@ -190,14 +191,17 @@ class RetrainingBopeExperiment:
         self.util_postmean_landscape = defaultdict(list) # [(method, pe_strategy)] = list of statistics tuples
 
         # estimate true optimal utility through sampling
-        self.true_opt = find_true_optimal_utility(self.problem, self.util_func, n=5000)
+        if self.compute_true_opt:
+            self.true_opt = find_true_optimal_utility(self.problem, self.util_func, n=5000)
+        else:
+            self.true_opt = None
         # print out more comprehensive util function landscape
-        true_util_landscape = get_function_statistics(
-            function=self.util_func, 
-            bounds=self.problem.bounds, 
-            inner_function=self.problem
-        )
-        print("True utility landscape: ", true_util_landscape)
+        # true_util_landscape = get_function_statistics(
+        #     function=self.util_func, 
+        #     bounds=self.problem.bounds, 
+        #     inner_function=self.problem
+        # )
+        # print("True utility landscape: ", true_util_landscape)
 
 
     def generate_random_experiment_data(self, n: int, compute_util: bool = True):
@@ -696,7 +700,7 @@ class RetrainingBopeExperiment:
         return within_result
 
 
-    def generate_BO_candidate(
+    def generate_BO_candidate( 
         self, 
         method: str, 
         pe_strategy: str, 
@@ -775,7 +779,7 @@ class RetrainingBopeExperiment:
             "method": method,
             "strategy": pe_strategy,
             "run_id": self.trial_idx,
-            "PE_time": self.PE_time_dict[(method, pe_strategy)],
+            "PE_time": self.PE_time_dict[(method, pe_strategy)], # TODO: needed?
             "util_model_acc": util_model_acc,
         }
         
@@ -791,6 +795,22 @@ class RetrainingBopeExperiment:
 
         return best_so_far
 
+    def generate_random_search_candidate(
+        self, 
+        BO_iter: int, 
+        best_so_far: float,
+        cum_n_BO_iters_so_far: int
+    ):
+        # TODO: implement this
+        r"""
+        Generate `self.BO_batch_size` number of random search candidate designs.
+        """
+
+        X = torch.rand([self.BO_batch_size, self.input_dim])
+        # then figure out how to concatenate with existing candidates, 
+        # how to save results, etc.
+
+        pass
 
     def compute_subspace_diagnostics(self, method: str, pe_strategy: str, n_test = 1000):
         r"""Compute and save diagnostics for the method and pe_strategy:
@@ -883,10 +903,11 @@ class RetrainingBopeExperiment:
             if self.include_xp1_candidates:
                 best_so_far = max(self.util_func(self.initial_Y)).item()
             else:
+                # TODO: double check this; we said to separate BO and PE performance
                 # the first point to evaluate is the last 
                 # posterior-mean-util-maximizing point from the PE stage
-                BO_X_so_far = self.BO_data_dict[(method, pe_strategy)].get("X",  torch.tensor([]))
-                BO_Y_so_far = self.BO_data_dict[(method, pe_strategy)].get("Y",  torch.tensor([]))
+                BO_X_so_far = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
+                BO_Y_so_far = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))
 
                 if self.verbose:
                     print(f"BO_X_so_far.shape: {BO_X_so_far.shape}", f"BO_Y_so_far.shape: {BO_Y_so_far.shape}")
@@ -915,7 +936,8 @@ class RetrainingBopeExperiment:
             print("best so far before BO exp stage: ", best_so_far)
 
             for iter in range(self.n_BO_iters):
-                cum_n_BO_iters_so_far = meta_iter * (self.n_BO_iters)
+                # total number of BO iterations before the current meta-stage
+                cum_n_BO_iters_so_far = meta_iter * (self.n_BO_iters) 
                 best_so_far = self.generate_BO_candidate(
                     method, pe_strategy, iter, best_so_far, cum_n_BO_iters_so_far)
 
@@ -963,6 +985,8 @@ class RetrainingBopeExperiment:
                             'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
                     torch.save(self.util_postmean_landscape, self.output_path +
                             'util_postmean_trial=' + str(self.trial_idx) + '.th')
+                    torch.save(self.BO_data_dict, self.output_path +
+                            'BO_data_trial=' + str(self.trial_idx) + '.th')
             
             except Exception as e:
                 print('Error occurred: ', e)

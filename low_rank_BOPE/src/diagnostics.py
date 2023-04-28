@@ -362,7 +362,8 @@ def check_util_model_fit(
     batch_eval: bool,
     return_util_vals: bool = False,
     projection: Optional[Tensor] = None,
-    kendalltau: bool = True
+    kendalltau: bool = True,
+    top_quantile: float = 1.0
 ) -> float:
     r"""
     Evaluate the goodness of fit of the utility model.
@@ -374,6 +375,8 @@ def check_util_model_fit(
             `n_test/2` pairwise comparisons
         projection: optional `latent_dim x outcome_dim` tensor of projection to 
             latent space; if not None, the pref model is fit on the latent space
+        top_quantile: fraction of the test data with high utility values to test
+            for accuracy of preference prediction
     Returns:
         pref_prediction_accuracy: fraction of the `n_test/2` pairwise
             preference that the model correctly predicts
@@ -387,6 +390,17 @@ def check_util_model_fit(
         comp_noise=0, 
         batch_eval=batch_eval
     )
+
+    # TODO: test that this is correct
+    if top_quantile < 1.0:
+        n_select = int(n_test * top_quantile)
+        if n_select % 2 == 1:
+            n_select += 1
+        # get indices of top quantile of test data (from test util values)
+        # fetch the corresponding entries of test_Y, round up to even number if needed
+        top_indices = torch.topk(
+            test_util_vals, n_select, dim=0, largest=True, sorted=True)
+        test_Y = test_Y[top_indices.indices]
 
     # run util_model on test data, get predictions
     if projection is not None:
