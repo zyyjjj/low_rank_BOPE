@@ -16,7 +16,7 @@ colors_dict = {
     "pca_eubo_rt": "tab:cyan",
     "pca_postmax_rt": "tab:orange",
     "wpca_true_rt": "tab:purple",
-    "wpca_est_rt": "tab:brown",
+    "wpca_est_rt": "tab:orange",
     # "pcr": "tab:cyan", 
     "st": "tab:blue", 
     "true_proj": "tab:pink",
@@ -85,6 +85,7 @@ def plot_performance_over_comps_single(
     num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
+    include_legend: bool = True,
     **kwargs
 ):
     r"""
@@ -104,6 +105,7 @@ def plot_performance_over_comps_single(
         num_plot_datapoints: number of checkpoints to show in the plot
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
+        include_legend: whether to include a legend in the plot
     """
     f, axs = plt.subplots(1, 1, 
                           figsize=kwargs.get("figsize",(6, 4))
@@ -195,12 +197,13 @@ def plot_performance_over_comps_single(
     ylabel = kwargs.get("ylabel", performance_over_comps_labels_dict[metric])
     axs.set_ylabel(ylabel, fontsize=kwargs.get("ylabel_fontsize", 12))
 
-    axs.legend(
-        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
-        loc=kwargs.get("legend_loc", "lower left"), 
-        ncol=kwargs.get("legend_ncols", 5), 
-        fontsize=kwargs.get("legend_fontsize", 12)
-    )
+    if include_legend:
+        axs.legend(
+            bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
+            loc=kwargs.get("legend_loc", "lower left"), 
+            ncol=kwargs.get("legend_ncols", 5), 
+            fontsize=kwargs.get("legend_fontsize", 12)
+        )
 
     if save_path is not None:
         if not os.path.exists(save_path):
@@ -220,6 +223,7 @@ def plot_performance_over_comps_multiple(
     num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
+    include_legend: bool = True,
     **kwargs
     ):
 
@@ -319,12 +323,13 @@ def plot_performance_over_comps_multiple(
     ylabel = kwargs.get("ylabel", performance_over_comps_labels_dict[metric])
     axs[0].set_ylabel(ylabel, fontsize=kwargs.get("ylabel_fontsize", 12))
 
-    axs[0].legend(
-        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.4)), 
-        loc=kwargs.get("legend_loc", "lower left"), 
-        ncol=kwargs.get("legend_ncols", 5), 
-        fontsize=kwargs.get("legend_fontsize", 12)
-    )
+    if include_legend:
+        axs[0].legend(
+            bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.4)), 
+            loc=kwargs.get("legend_loc", "lower left"), 
+            ncol=kwargs.get("legend_ncols", 5), 
+            fontsize=kwargs.get("legend_fontsize", 12)
+        )
 
     if save_path is not None:
         if not os.path.exists(save_path):
@@ -365,6 +370,7 @@ def plot_subspace_diagnostics_single(
     plot_vline: Optional[bool] = False,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
+    include_legend: bool = True,
     **kwargs
 ):
     r"""
@@ -382,6 +388,7 @@ def plot_subspace_diagnostics_single(
             this is used to separate the PE and BO stages, if metrics are logged together for both
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
+        include_legend: whether to include legend in the plot
     """
 
     available_trials = list(outputs[problem]["subspace_diagnostics"].keys())
@@ -465,12 +472,13 @@ def plot_subspace_diagnostics_single(
             linewidth = 1.5
         )
 
-    plt.legend(
-        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
-        loc=kwargs.get("legend_loc", "lower left"), 
-        ncol=kwargs.get("legend_ncols", 5), 
-        fontsize=kwargs.get("legend_fontsize", 12)
-    )
+    if include_legend:
+        plt.legend(
+            bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
+            loc=kwargs.get("legend_loc", "lower left"), 
+            ncol=kwargs.get("legend_ncols", 5), 
+            fontsize=kwargs.get("legend_fontsize", 12)
+        )
 
     plt.xlabel("Number of times retrained")
 
@@ -513,6 +521,7 @@ def plot_BO_results_single(
     num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
+    include_legend: bool = True,
     **kwargs
 ):
     r"""
@@ -532,6 +541,7 @@ def plot_BO_results_single(
         num_plot_datapoints: number of BO iterations to plot
         save_path: directory to save the figure, if saving
         save_file_name: file name under save_path to save the figure, if saving
+        include_legend: whether to include a legend in the plot
     """
 
     f, axs = plt.subplots(1, 1, figsize=kwargs.get("figsize",(6, 4)))
@@ -618,12 +628,13 @@ def plot_BO_results_single(
     ylabel = kwargs.get("ylabel", BO_results_labels_dict[metric])
     axs.set_ylabel(ylabel)
 
-    axs.legend(
-        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
-        loc=kwargs.get("legend_loc", "lower left"), 
-        ncol=kwargs.get("legend_ncols", 5), 
-        fontsize=kwargs.get("legend_fontsize", 12)
-    )
+    if include_legend:
+        axs.legend(
+            bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
+            loc=kwargs.get("legend_loc", "lower left"), 
+            ncol=kwargs.get("legend_ncols", 5), 
+            fontsize=kwargs.get("legend_fontsize", 12)
+        )
 
     if save_path is not None:
         if not os.path.exists(save_path):
@@ -644,6 +655,7 @@ def plot_BO_results_multiple(
     num_plot_datapoints: Optional[int] = None,
     save_path: Optional[str] = None,
     save_file_name: Optional[str] = None,
+    include_legend: bool = True,
     **kwargs
 ):
     r"""
@@ -749,12 +761,13 @@ def plot_BO_results_multiple(
     ylabel = kwargs.get("ylabel", BO_results_labels_dict[metric])
     axs[0].set_ylabel(ylabel)
 
-    axs[0].legend(
-        bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
-        loc=kwargs.get("legend_loc", "lower left"), 
-        ncol=kwargs.get("legend_ncols", 5), 
-        fontsize=kwargs.get("legend_fontsize", 12)
-    )
+    if include_legend:
+        axs[0].legend(
+            bbox_to_anchor=kwargs.get("legend_bbox_to_anchor", (-0.05, -0.3)), 
+            loc=kwargs.get("legend_loc", "lower left"), 
+            ncol=kwargs.get("legend_ncols", 5), 
+            fontsize=kwargs.get("legend_fontsize", 12)
+        )
 
     if save_path is not None:
         if not os.path.exists(save_path):
