@@ -391,16 +391,18 @@ def check_util_model_fit(
         batch_eval=batch_eval
     )
 
-    # TODO: test that this is correct
+    # get indices of top quantile of test data (from test util values)
+    # fetch the corresponding entries of test_Y, round up to even number if needed
     if top_quantile < 1.0:
         n_select = int(n_test * top_quantile)
         if n_select % 2 == 1:
             n_select += 1
-        # get indices of top quantile of test data (from test util values)
-        # fetch the corresponding entries of test_Y, round up to even number if needed
+        
         top_indices = torch.topk(
-            test_util_vals, n_select, dim=0, largest=True, sorted=True)
-        test_Y = test_Y[top_indices.indices]
+            test_util_vals, n_select, dim=0, largest=True, sorted=True).indices.squeeze(1)
+        test_Y = test_Y[top_indices]
+        test_util_vals = test_util_vals[top_indices]
+        # print(top_quantile, top_indices.shape, test_Y.shape, test_util_vals.shape)
 
     # run util_model on test data, get predictions
     if projection is not None:
@@ -408,8 +410,7 @@ def check_util_model_fit(
         posterior_util_mean = util_model.posterior(test_L).mean
     else:
         posterior_util_mean = util_model.posterior(test_Y).mean
-    posterior_util_mean_ = posterior_util_mean.reshape((n_test // 2, 2))
-
+    
     if kendalltau:
         # compute kendall's tau rank correlation
         pref_prediction_accuracy, p = stats.kendalltau(
@@ -423,6 +424,8 @@ def check_util_model_fit(
         # item i is preferred to item i+1, so the row in test_comps is [i, i+1]
         # and predicted utility of item i is higher than that of i+1
         # vice versa: [i+1, i] and posterior_util(i) < posterior_util(i+1)
+        posterior_util_mean_ = posterior_util_mean.reshape(
+            (len(posterior_util_mean)// 2, 2))
         correct_test_rankings = (posterior_util_mean_[:,0] - posterior_util_mean_[:,1]) * (
             test_comps[:, 0] - test_comps[:, 1]
         )
