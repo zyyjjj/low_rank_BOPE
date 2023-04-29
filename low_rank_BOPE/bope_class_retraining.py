@@ -151,7 +151,7 @@ class RetrainingBopeExperiment:
         self.util_func = util_func
         self.pe_strategies = pe_strategies
         self.outcome_dim = problem.outcome_dim
-        self.input_dim = problem._bounds.shape[-1]
+        self.input_dim = problem._bounds.shape[-2]
         self.trial_idx = trial_idx
         self.output_path = output_path
         if not os.path.exists(self.output_path):
@@ -248,6 +248,9 @@ class RetrainingBopeExperiment:
         - Update self.transforms_covar_dict with the computed projection.
         - Save subspace diagnostics in self.subspace_diagnostics.
         """
+
+        if method == "random_search":
+            return
         
         projection = None
 
@@ -437,6 +440,9 @@ class RetrainingBopeExperiment:
         - Save the outcome model in self.outcome_models_dict.
         - Save diagnostics such as fitting error in self.subspace_diagnostics.
         """
+
+        if method == "random_search":
+            return
 
         start_time = time.time()
 
@@ -684,8 +690,18 @@ class RetrainingBopeExperiment:
         util_model_acc = check_util_model_fit(
             util_model=util_model, 
             problem=self.problem, util_func=self.util_func, 
-            n_test=1000, batch_eval=True)
+            n_test=1024, batch_eval=True)
         within_result["util_model_acc"] = util_model_acc
+        util_model_acc_top_half = check_util_model_fit(
+            util_model=util_model, 
+            problem=self.problem, util_func=self.util_func, 
+            n_test=1024, batch_eval=True, top_quantile=0.5)
+        within_result["util_model_acc_top_half"] = util_model_acc_top_half
+        util_model_acc_top_quarter = check_util_model_fit(
+            util_model=util_model, 
+            problem=self.problem, util_func=self.util_func, 
+            n_test=1024, batch_eval=True, top_quantile=0.25)
+        within_result["util_model_acc_top_quarter"] = util_model_acc_top_quarter
 
         overall_model_acc = check_overall_fit(
             outcome_model=self.outcome_models_dict[(method, pe_strategy)],
@@ -714,103 +730,101 @@ class RetrainingBopeExperiment:
             BO_iter: iteration index in the current BO stage
             best_so_far: best observed utility value in all BO stages so far
             cum_n_BO_iters_so_far: cumulative number of BO iterations in all BO 
-                stages so far
+                stages so far (not including the current BO stage)
         """
 
-        util_model = self.fit_util_model(
-            method, pe_strategy
-        )
-        # log accuracy of final utility model
-        util_model_acc = check_util_model_fit(
-            util_model, self.problem, self.util_func, 
-            n_test=1000, batch_eval=True)
+        if method == "random_search":
+            rs_X = torch.rand([self.BO_batch_size, self.input_dim]) 
+            rs_util = self.util_func(self.problem.evaluate_true(rs_X)) # shape (q, 1)
+            if best_so_far is None:
+                best_so_far = rs_util.max().item()
+            else: 
+                best_so_far = max(best_so_far, rs_util.max().item())
+            exp_result = {
+                "candidate": rs_X,
+                "candidate_util": rs_util.squeeze(1).tolist(),
+                "best_util_so_far": best_so_far,
+                "BO_iter": BO_iter + cum_n_BO_iters_so_far,
+                "method": method,
+                "strategy": pe_strategy,
+                "run_id": self.trial_idx,
+            }
 
-        sampler = SobolQMCNormalSampler(1)
-        pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
+        else:
+            # read model from self.util_models_dict (last one fit at find_max_post_mean)
+            util_model = self.util_models_dict[(method, pe_strategy)]
 
-        cand_Xs = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
-        cand_Ys = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
-        
-        if self.include_xp1_candidates:
-            if cand_Xs.nelement() > 0:
-                baseline_X = torch.cat([self.initial_X, cand_Xs], dim=0)
+            sampler = SobolQMCNormalSampler(1)
+            pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
+
+            cand_Xs = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
+            cand_Ys = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
+            
+            # if self.include_xp1_candidates:
+            #     if cand_Xs.nelement() > 0:
+            #         baseline_X = torch.cat([self.initial_X, cand_Xs], dim=0)
+            #     else:
+            #         baseline_X = self.initial_X
+            # else: # TODO: currently throws bug if cand_Xs is empty
+            #     baseline_X = cand_Xs
+
+            baseline_X = torch.cat([self.initial_X, cand_Xs], dim=0)
+
+            # find experimental candidate(s) that maximize the noisy EI acqf
+            new_cand_X, acqf_val = gen_exp_cand(
+                outcome_model=self.outcome_models_dict[(method, pe_strategy)],
+                objective=pref_obj,
+                problem=self.problem,
+                q=self.BO_batch_size, 
+                acqf_name="qNEI",
+                X=baseline_X, 
+                seed=self.trial_idx
+            )
+            new_cand_X_posterior = self.outcome_models_dict[(method, pe_strategy)].posterior(new_cand_X)
+            new_cand_X_posterior_mean_util = util_model.posterior(new_cand_X_posterior.mean).mean
+            new_cand_X_posterior_var = new_cand_X_posterior.variance
+            print('new_cand_X_posterior_mean_util: ', new_cand_X_posterior_mean_util)
+            # print('average new_cand_X_posterior_var: ', torch.mean(new_cand_X_posterior_var))
+            new_cand_Y = self.problem(new_cand_X).detach()
+
+            qneiuu_util = self.util_func(self.problem.evaluate_true(new_cand_X)) # shape (q, 1)
+            print(
+                f"({method}, {pe_strategy})-qNEIUU candidate utility: {qneiuu_util}"
+            )
+
+            if best_so_far is None:
+                best_so_far = torch.max(qneiuu_util).item()
             else:
-                baseline_X = self.initial_X
-        else:
-            baseline_X = cand_Xs
+                best_so_far = max(best_so_far, torch.max(qneiuu_util).item())
 
-        # find experimental candidate(s) that maximize the noisy EI acqf
-        new_cand_X, acqf_val = gen_exp_cand(
-            outcome_model=self.outcome_models_dict[(method, pe_strategy)],
-            objective=pref_obj,
-            problem=self.problem,
-            q=self.BO_batch_size, 
-            acqf_name="qNEI",
-            X=baseline_X, 
-            seed=self.trial_idx
-        )
-        new_cand_X_posterior = self.outcome_models_dict[(method, pe_strategy)].posterior(new_cand_X)
-        new_cand_X_posterior_mean_util = util_model.posterior(new_cand_X_posterior.mean).mean
-        new_cand_X_posterior_var = new_cand_X_posterior.variance
-        print('new_cand_X_posterior_mean_util: ', new_cand_X_posterior_mean_util)
-        # print('average new_cand_X_posterior_var: ', torch.mean(new_cand_X_posterior_var))
-        new_cand_Y = self.problem(new_cand_X).detach()
+            print(f"best so far at BO iter {BO_iter}: ", best_so_far)
 
-        qneiuu_util = self.util_func(self.problem.evaluate_true(new_cand_X)) # shape (q, 1)
-        print(
-            f"({method}, {pe_strategy})-qNEIUU candidate utility: {qneiuu_util}"
-        )
+            exp_result = {
+                "candidate": new_cand_X,
+                "acqf_val": acqf_val.tolist(),
+                "candidate_posterior_mean_util": new_cand_X_posterior_mean_util.squeeze(1).tolist(),
+                # "candidate_posterior_variance": new_cand_X_posterior.variance,
+                "candidate_util": qneiuu_util.squeeze(1).tolist(),
+                "best_util_so_far": best_so_far,
+                "BO_iter": BO_iter + cum_n_BO_iters_so_far,
+                "method": method,
+                "strategy": pe_strategy,
+                "run_id": self.trial_idx,
+                "PE_time": self.PE_time_dict[(method, pe_strategy)], # TODO: needed?
+            }
+            
+            # log the true optimal utility computed in __init__()
+            exp_result["true_opt"] = self.true_opt
 
-        if best_so_far is None:
-            best_so_far = torch.max(qneiuu_util).item()
-        else:
-            best_so_far = max(best_so_far, torch.max(qneiuu_util).item())
-
-        print(f"best so far at BO iter {BO_iter}: ", best_so_far)
-
-        exp_result = {
-            "candidate": new_cand_X,
-            "acqf_val": acqf_val.tolist(),
-            "candidate_posterior_mean_util": new_cand_X_posterior_mean_util.squeeze(1).tolist(),
-            # "candidate_posterior_variance": new_cand_X_posterior.variance,
-            "candidate_util": qneiuu_util.squeeze(1).tolist(),
-            "best_util_so_far": best_so_far,
-            "BO_iter": BO_iter + cum_n_BO_iters_so_far,
-            "method": method,
-            "strategy": pe_strategy,
-            "run_id": self.trial_idx,
-            "PE_time": self.PE_time_dict[(method, pe_strategy)], # TODO: needed?
-            "util_model_acc": util_model_acc,
-        }
-        
-        # log the true optimal utility computed in __init__()
-        exp_result["true_opt"] = self.true_opt
+            self.BO_data_dict[(method, pe_strategy)]["X"] = torch.cat(
+                (cand_Xs, new_cand_X), dim=0)
+            self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
+                (cand_Ys, new_cand_Y), dim=0)
 
         self.final_candidate_results[method][pe_strategy].append(exp_result)
 
-        self.BO_data_dict[(method, pe_strategy)]["X"] = torch.cat(
-            (cand_Xs, new_cand_X), dim=0)
-        self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
-            (cand_Ys, new_cand_Y), dim=0)
-
         return best_so_far
 
-    def generate_random_search_candidate(
-        self, 
-        BO_iter: int, 
-        best_so_far: float,
-        cum_n_BO_iters_so_far: int
-    ):
-        # TODO: implement this
-        r"""
-        Generate `self.BO_batch_size` number of random search candidate designs.
-        """
-
-        X = torch.rand([self.BO_batch_size, self.input_dim])
-        # then figure out how to concatenate with existing candidates, 
-        # how to save results, etc.
-
-        pass
 
     def compute_subspace_diagnostics(self, method: str, pe_strategy: str, n_test = 1000):
         r"""Compute and save diagnostics for the method and pe_strategy:
@@ -854,12 +868,18 @@ class RetrainingBopeExperiment:
         self.pref_data_dict.
         """
 
+        if method == "random_search":
+            return
+
         for pe_strategy in self.pe_strategies:
             self.compute_projections(method, pe_strategy)
             self.fit_outcome_model(method, pe_strategy)        
 
     def run_PE_stage(self, method: str):
         r"""Run preference exploration stage. """
+
+        if method == "random_search": 
+            return
 
         for pe_strategy in self.pe_strategies:
 
@@ -900,40 +920,47 @@ class RetrainingBopeExperiment:
         for pe_strategy in self.pe_strategies:
             print(f"===== Running BO experimentation stage {meta_iter} using {method} with {pe_strategy} =====")
 
-            if self.include_xp1_candidates:
-                best_so_far = max(self.util_func(self.initial_Y)).item()
-            else:
+            # if self.include_xp1_candidates:
+            #     best_so_far = max(self.util_func(self.initial_Y)).item()
+            # else:
                 # TODO: double check this; we said to separate BO and PE performance
                 # the first point to evaluate is the last 
                 # posterior-mean-util-maximizing point from the PE stage
-                BO_X_so_far = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
-                BO_Y_so_far = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))
+                # BO_X_so_far = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
+                # BO_Y_so_far = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))
 
-                if self.verbose:
-                    print(f"BO_X_so_far.shape: {BO_X_so_far.shape}", f"BO_Y_so_far.shape: {BO_Y_so_far.shape}")
+                # if self.verbose:
+                #     print(f"BO_X_so_far.shape: {BO_X_so_far.shape}", f"BO_Y_so_far.shape: {BO_Y_so_far.shape}")
 
-                tmp_X = self.PE_session_results[method][pe_strategy][-1]["candidate"]
-                tmp_Y = self.problem(tmp_X)
-                tmp_util = self.util_func(tmp_Y).item()
+                # tmp_X = self.PE_session_results[method][pe_strategy][-1]["candidate"]
+                # tmp_Y = self.problem(tmp_X)
+                # tmp_util = self.util_func(tmp_Y).item()
 
-                self.BO_data_dict[(method, pe_strategy)]["X"] = torch.cat(
-                    (BO_X_so_far, tmp_X),
-                    dim = 0
-                )
+                # self.BO_data_dict[(method, pe_strategy)]["X"] = torch.cat(
+                #     (BO_X_so_far, tmp_X),
+                #     dim = 0
+                # )
 
-                self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
-                    (BO_Y_so_far, tmp_Y),
-                    dim = 0
-                )
+                # self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
+                #     (BO_Y_so_far, tmp_Y),
+                #     dim = 0
+                # )
 
-                if len(self.final_candidate_results[method][pe_strategy]) > 0:
-                    best_so_far = max(
-                        self.final_candidate_results[method][pe_strategy][-1]["best_util_so_far"],
-                        tmp_util)
-                else:
-                    best_so_far = tmp_util
+                # if len(self.final_candidate_results[method][pe_strategy]) > 0:
+                #     best_so_far = max(
+                #         self.final_candidate_results[method][pe_strategy][-1]["best_util_so_far"],
+                #         tmp_util)
+                # else:
+                #     best_so_far = tmp_util
+
+            if len(self.final_candidate_results[method][pe_strategy]) > 0:
+                best_so_far = \
+                    self.final_candidate_results[method][pe_strategy][-1]["best_util_so_far"]
+            else:
+                # best_so_far = -float("inf")
+                best_so_far = max(self.util_func(self.initial_Y)).item()
                  
-            print("best so far before BO exp stage: ", best_so_far)
+            print("best so far before BO exp stage: ", best_so_far) 
 
             for iter in range(self.n_BO_iters):
                 # total number of BO iterations before the current meta-stage
@@ -941,8 +968,8 @@ class RetrainingBopeExperiment:
                 best_so_far = self.generate_BO_candidate(
                     method, pe_strategy, iter, best_so_far, cum_n_BO_iters_so_far)
 
-                # TODO: update projection (optional), update outcome model
-                # self.compute_projections(method, pe_strategy)
+                # TODO: check whether to update projection with new datapoint
+                self.compute_projections(method, pe_strategy)
                 self.fit_outcome_model(method, pe_strategy)
 
 
@@ -975,17 +1002,17 @@ class RetrainingBopeExperiment:
                     self.run_PE_stage(method)
                     self.run_BO_experimentation_stage(method, meta_iter)
 
-                    torch.save(self.PE_session_results, self.output_path +
+                    torch.save(dict(self.PE_session_results), self.output_path +
                             'PE_session_results_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(self.final_candidate_results, self.output_path +
+                    torch.save(dict(self.final_candidate_results), self.output_path +
                             'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(self.pref_data_dict, self.output_path +
+                    torch.save(dict(self.pref_data_dict), self.output_path +
                             'pref_data_trial=' + str(self.trial_idx) + '.th')
                     torch.save(dict(self.subspace_diagnostics), self.output_path +
                             'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(self.util_postmean_landscape, self.output_path +
+                    torch.save(dict(self.util_postmean_landscape), self.output_path +
                             'util_postmean_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(self.BO_data_dict, self.output_path +
+                    torch.save(dict(self.BO_data_dict), self.output_path +
                             'BO_data_trial=' + str(self.trial_idx) + '.th')
             
             except Exception as e:
