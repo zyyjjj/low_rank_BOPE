@@ -390,6 +390,8 @@ def check_util_model_fit(
         comp_noise=0, 
         batch_eval=batch_eval
     )
+    if len(test_util_vals.shape) == 1:
+        test_util_vals = test_util_vals.unsqueeze(1)
 
     # get indices of top quantile of test data (from test util values)
     # fetch the corresponding entries of test_Y, round up to even number if needed

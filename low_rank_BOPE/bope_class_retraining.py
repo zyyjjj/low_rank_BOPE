@@ -596,7 +596,7 @@ class RetrainingBopeExperiment:
             cand_Y = cand_Y.detach().clone()
             cand_util_val = self.util_func(cand_Y)
             cand_comps = gen_comps(cand_util_val)
-            print("        -- EUBO selected candidate util val: ", cand_util_val.squeeze(1).tolist())
+            print("        -- EUBO selected candidate util val: ", cand_util_val.squeeze(-1).tolist())
             
             train_comps = torch.cat(
                 (train_comps, cand_comps + train_Y.shape[0])
@@ -746,7 +746,7 @@ class RetrainingBopeExperiment:
                 best_so_far = max(best_so_far, rs_util.max().item())
             exp_result = {
                 "candidate": rs_X,
-                "candidate_util": rs_util.squeeze(1).tolist(),
+                "candidate_util": rs_util.squeeze(-1).tolist(),
                 "best_util_so_far": best_so_far,
                 "BO_iter": BO_iter + cum_n_BO_iters_so_far + 1,
                 "method": method,
@@ -781,15 +781,15 @@ class RetrainingBopeExperiment:
                 seed=self.trial_idx
             )
             new_cand_X_posterior = self.outcome_models_dict[(method, pe_strategy)].posterior(new_cand_X)
-            new_cand_X_posterior_mean_util = util_model.posterior(new_cand_X_posterior.mean).mean
+            new_cand_X_posterior_mean_util = util_model.posterior(new_cand_X_posterior.mean).mean.detach()
             new_cand_X_posterior_var = new_cand_X_posterior.variance
-            print('        -- new_cand_X_posterior_mean_util: ', new_cand_X_posterior_mean_util.squeeze(1).tolist())
+            print('        -- new_cand_X_posterior_mean_util: ', new_cand_X_posterior_mean_util)
             # print('average new_cand_X_posterior_var: ', torch.mean(new_cand_X_posterior_var))
             new_cand_Y = self.problem(new_cand_X).detach()
 
-            qneiuu_util = self.util_func(self.problem.evaluate_true(new_cand_X)) # shape (q, 1)
+            qneiuu_util = self.util_func(new_cand_Y).detach() # shape (q, 1) or q
             print(
-                f"        -- ({method}, {pe_strategy})-qNEIUU candidate utility: {qneiuu_util.squeeze(1).tolist()}"
+                f"        -- ({method}, {pe_strategy})-qNEIUU candidate utility: {qneiuu_util.squeeze(-1).tolist()}"
             )
 
             if best_so_far is None:
@@ -802,9 +802,9 @@ class RetrainingBopeExperiment:
             exp_result = {
                 "candidate": new_cand_X,
                 "acqf_val": acqf_val.tolist(),
-                "candidate_posterior_mean_util": new_cand_X_posterior_mean_util.squeeze(1).tolist(),
+                "candidate_posterior_mean_util": new_cand_X_posterior_mean_util.squeeze(-1).tolist(),
                 # "candidate_posterior_variance": new_cand_X_posterior.variance,
-                "candidate_util": qneiuu_util.squeeze(1).tolist(),
+                "candidate_util": qneiuu_util.squeeze(-1).tolist(),
                 "best_util_so_far": best_so_far,
                 "BO_iter": BO_iter + cum_n_BO_iters_so_far,
                 "method": method,
