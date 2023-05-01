@@ -806,7 +806,7 @@ class RetrainingBopeExperiment:
                 # "candidate_posterior_variance": new_cand_X_posterior.variance,
                 "candidate_util": qneiuu_util.squeeze(-1).tolist(),
                 "best_util_so_far": best_so_far,
-                "BO_iter": BO_iter + cum_n_BO_iters_so_far,
+                "BO_iter": BO_iter + cum_n_BO_iters_so_far + 1,
                 "method": method,
                 "strategy": pe_strategy,
                 "run_id": self.trial_idx,
