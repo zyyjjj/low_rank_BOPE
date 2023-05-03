@@ -60,7 +60,7 @@ def make_controlled_coeffs(
         alpha: a number in [0,1] specifying the desired norm of the
             projection of each coefficient onto the space
             spanned by the first `latent_dim` rows of full_axes
-        n_reps: number of coefficients to generate
+        n_reps: number of coefficient vectors to generate
     Returns:
         `n_reps x outcome_dim` tensor, with each row being a linear
             utility function coefficient
@@ -132,6 +132,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         add_noise_to_PCs: bool = False,
         jitter: float = 0.000001,
         negate: bool = False,
+        state_dict_str: Optional[str] = None,
         **tkwargs,
     ):
         r"""
@@ -200,12 +201,30 @@ class PCATestProblem(ConstrainedBaseTestProblem):
 
             initial_PCs = torch.cat((initial_PCs, one_PC), dim=1)
 
-        # fit a GP model to the initial PC values
+        # fit a GP model to the initial PC values or load a saved model
         gen_model_PC = SingleTaskGP(initial_X, initial_PCs).to(**tkwargs)
-        gen_model_PC_mll = ExactMarginalLogLikelihood(
-            gen_model_PC.likelihood, gen_model_PC
-        )
-        fit_gpytorch_mll(gen_model_PC_mll)
+        if state_dict_str is not None:
+            try:
+                state_dict = torch.load(f'/home/yz685/low_rank_BOPE/low_rank_BOPE/test_problems/real_metric_corr/{state_dict_str}.pt')
+                gen_model_PC.load_state_dict(state_dict)
+                print(f"=== Loading saved state dict for {state_dict_str} ===")
+            except FileNotFoundError:
+                gen_model_PC_mll = ExactMarginalLogLikelihood(
+                    gen_model_PC.likelihood, gen_model_PC
+                )
+                from time import time
+                start = time()
+                fit_gpytorch_mll(gen_model_PC_mll)
+                print("Fitting took %s seconds" % (time() - start))
+                torch.save(
+                    gen_model_PC.state_dict(), 
+                    f'/home/yz685/low_rank_BOPE/low_rank_BOPE/test_problems/real_metric_corr/{state_dict_str}.pt'
+                )
+        else:
+            gen_model_PC_mll = ExactMarginalLogLikelihood(
+                gen_model_PC.likelihood, gen_model_PC
+            )
+            fit_gpytorch_mll(gen_model_PC_mll)
 
         self.gen_model_PC = gen_model_PC
 
@@ -344,6 +363,11 @@ def make_problem(**kwargs):
         "problem_seed": 1234,
     }
 
+    # if input sth like 
+    # PTS=6_input=1_outcome=45_latent=3_PCls=0.5_seed=1234
+    # Rdm_input=3_outcome=50_latent=3_PCls=0.1_PCsf=2_seed=1234
+    # load directly state_dict
+
     # overwrite config settings with kwargs
     for key, val in kwargs.items():
         if val is not None:
@@ -371,6 +395,7 @@ def make_problem(**kwargs):
         PC_lengthscales=Tensor(config["PC_lengthscales"]),
         PC_scaling_factors=Tensor(config["PC_scaling_factors"]),
         dtype=torch.double,
+        state_dict_str=config.get("state_dict_str", None)
     )
 
     return problem
@@ -397,9 +422,44 @@ class LinearUtil(torch.nn.Module):
     def forward(self, Y, X=None):
         return Y @ self.beta.to(Y)
 
+
+class PiecewiseLinear(torch.nn.Module):
+    def __init__(
+        self, beta1: torch.Tensor, beta2: torch.Tensor, thresholds: torch.Tensor
+    ):
+        """
+        Args:
+            beta1: size `outcome_dim` tensor, coefficients below threshold (usually steep)
+            beta2: size `outcome_dim` tensor, coefficients above threshold (usually flat)
+            thresholds: size `outcome_dim` tensor, points where slopes change
+        """
+        super().__init__()
+        self.register_buffer("beta1", beta1)
+        self.register_buffer("beta2", beta2)
+        self.register_buffer("thresholds", thresholds)
+
+    def calc_raw_util_per_dim(self, Y):
+        # below thresholds
+        bt = Y < self.thresholds
+        b1 = self.beta1.expand(Y.shape)
+        b2 = self.beta2.expand(Y.shape)
+        shift = (b2 - b1) * self.thresholds
+        util_val = torch.empty_like(Y)
+
+        # util_val[bt] = Y[bt] * b1[bt]
+        util_val[bt] = Y[bt] * b1[bt] + shift[bt]
+        util_val[~bt] = Y[~bt] * b2[~bt]
+
+        return util_val
+
+    def forward(self, Y, X=None):
+        util_val = self.calc_raw_util_per_dim(Y)
+        util_val = util_val.sum(dim=-1)
+        return util_val.unsqueeze(1)
+
 class SumOfSquaresUtil(torch.nn.Module):
     """ 
-    Create sum of squares utility function modulew with specified coefficient beta.
+    Create sum of squares utility function module with specified coefficient beta.
     f(y) = beta_1 * y_1^2 + ... + beta_k * y_k^2
     """
     def __init__(self, beta: Tensor):
@@ -415,3 +475,4 @@ class SumOfSquaresUtil(torch.nn.Module):
 
     def forward(self, Y, X=None):
         return torch.square(Y) @ self.beta.to(Y)
+    
