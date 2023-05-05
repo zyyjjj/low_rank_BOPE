@@ -1,8 +1,5 @@
 
 
-
-
-
 PROBLEM_SETUPS = {
     "vehiclesafety_5d3d_piecewiselinear_24": {
         "noise_std": 0.01,
@@ -40,6 +37,80 @@ PROBLEM_SETUPS = {
         "order_cost_one_time": 0.0,
         "order_cost_per_unit": 0.1
     }
+    # TODO: add problem setup for synthetic-PTS problem
 }
 
-# TODO: double check, complete 
+
+EXPERIMENT_SETUPS = {
+    "vehiclesafety_5d3d_piecewiselinear_24": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 4,
+        "init_exp_batch": 32,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 8,
+        "n_meta_iters": 10,
+    },
+    "carcabdesign_7d9d_piecewiselinear_72": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 4,
+        "init_exp_batch": 32,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 8,
+        "n_meta_iters": 10,
+    },
+    "carcabdesign_7d9d_linear_72": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 4,
+        "init_exp_batch": 32,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 8,
+        "n_meta_iters": 10,
+    },
+    "8by8_rectangle_gradientAwareArea": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 4,
+        "init_exp_batch": 32,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 8,
+        "n_meta_iters": 10,
+    },
+    "16by16_rectangle_gradientAwareArea": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 8,
+        "init_exp_batch": 64,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 16,
+        "n_meta_iters": 5,
+    },
+    "robot_3_100_1": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 8,
+        "init_exp_batch": 64,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 16,
+        "n_meta_iters": 5,
+    },
+    "inventory_100": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 8,
+        "init_exp_batch": 64,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 16,
+        "n_meta_iters": 5,
+    }
+    # TODO: add experiment setup for synthetic-PTS problem
+}
