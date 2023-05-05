@@ -74,3 +74,6 @@ def make_problem_and_util_func(
     elif problem_name.startswith("PTS"):
         # TODO: do something similar as in `synthetic_PTS_problems_runner.py`
         # if possible, use the cached PC-GP
+        pass
+
+    return problem, util_func
