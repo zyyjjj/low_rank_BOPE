@@ -5,7 +5,7 @@ import os
 import random
 import time
 from collections import defaultdict
-from typing import List
+from typing import List, Optional
 
 import botorch
 import numpy as np
@@ -114,7 +114,8 @@ class RetrainingBopeExperiment:
         "include_xp1_candidates": True, # if true, include candidate designs in the first exp stage too in BO
         "wpca_type": "rank_cts",
         "wpca_options": {"k": 10, "num_points_to_discard": 2},
-        "compute_true_opt": False
+        "compute_true_opt": False,
+        "save_results": True,
     }
 
     def __init__(
@@ -124,7 +125,7 @@ class RetrainingBopeExperiment:
         methods: List[str],
         pe_strategies: List[str],
         trial_idx: int,
-        output_path: str,
+        output_path: Optional[str],
         **kwargs
     ) -> None:
         r"""
@@ -151,7 +152,7 @@ class RetrainingBopeExperiment:
         self.util_func = util_func
         self.pe_strategies = pe_strategies
         self.outcome_dim = problem.outcome_dim
-        self.input_dim = problem._bounds.shape[-2]
+        self.input_dim = problem.bounds.shape[-1]
         self.trial_idx = trial_idx
         self.output_path = output_path
         if not os.path.exists(self.output_path):
@@ -178,7 +179,7 @@ class RetrainingBopeExperiment:
         self.outcome_models_dict = {}  # by (method, pe_strategy)
         self.util_models_dict = {} # by (method, pe_strategy)
         self.pref_data_dict = defaultdict(dict)  # (Y, util_vals, comps) by (method, pe_strategy)
-        self.projections_dict = {} # stores projections to subspaces, by (method, pe_strategy)
+        self.projections_dict = defaultdict(list) # stores list of projections to subspaces, by (method, pe_strategy)
         self.transforms_covar_dict = {} # specify outcome and input transforms, covariance modules, by (method, pe_strategy)
         self.subspace_training_Y = {} # outcome data used for subspace learning, by (method, pe_strategy)
         self.BO_data_dict = defaultdict(dict) # stores BO candidate designs and outcome values, by (method, pe_strategy)
@@ -244,7 +245,7 @@ class RetrainingBopeExperiment:
     def compute_projections(self, method: str, pe_strategy: str):
         r"""
         - Compute projections to subspace for given method and pe_strategy. 
-        - Store the projection in self.projections_dict.
+        - Store the projection in self.projections_dict (append to list).
         - Update self.transforms_covar_dict with the computed projection.
         - Save subspace diagnostics in self.subspace_diagnostics.
         """
@@ -261,11 +262,12 @@ class RetrainingBopeExperiment:
 
         if method.startswith("pca"): 
 
-            if method in ("pca", "pca_rt"):
+            if method in ("pca", "pca_rt", "pca_norefit_rt"):
                 Y_selected = train_Y
             else:
                 # methods that include fake points from outcome model posterior 
                 # pca_all_rt, pca_eubo_rt, pca_postquant_rt, pca_postmax_rt
+                # these are deprecated for now
                 Y_selected = self.subspace_training_Y[(method, pe_strategy)]
             
             if self.verbose:
@@ -414,7 +416,7 @@ class RetrainingBopeExperiment:
             }
 
         if projection is not None:
-            self.projections_dict[(method, pe_strategy)] = projection
+            self.projections_dict[(method, pe_strategy)].append(projection)
 
             self.transforms_covar_dict[(method, pe_strategy)] = {
                 "outcome_tf": ChainedOutcomeTransform(
@@ -738,7 +740,8 @@ class RetrainingBopeExperiment:
         """
 
         if method == "random_search":
-            rs_X = torch.rand([self.BO_batch_size, self.input_dim]) 
+            rs_X = torch.rand([self.BO_batch_size, self.input_dim], dtype = torch.double) 
+            rs_X = rs_X * (self.problem.bounds[1] - self.problem.bounds[0]) + self.problem.bounds[0]
             rs_util = self.util_func(self.problem.evaluate_true(rs_X)) # shape (q, 1)
             if best_so_far is None:
                 best_so_far = rs_util.max().item()
@@ -834,7 +837,7 @@ class RetrainingBopeExperiment:
         - best achievable utility value in subspace max_x g(VV^T f(x))
         - average utility value in subspace E[g(VV^T f(x))]
         """
-        projection = self.projections_dict[(method, pe_strategy)] 
+        projection = self.projections_dict[(method, pe_strategy)][-1] 
 
         max_outcome_error = mc_max_outcome_error(
             problem=self.problem,
@@ -898,16 +901,19 @@ class RetrainingBopeExperiment:
                     self.find_max_posterior_mean(method, pe_strategy)
                 )
                 # relearn subspace if method calls for retraining
+                # in fact, only the methods that require utility model posterior 
+                # to fit the subspace needs this step
                 if method.endswith("rt"):
                     print(f"    ~~ Retraining subspace using [{method}] with [{pe_strategy}] during PE")
-                    prev_projection = self.projections_dict[(method, pe_strategy)]
+                    prev_projection = self.projections_dict[(method, pe_strategy)][-1]
                     self.compute_projections(method, pe_strategy)
                     _, _, g = compute_grassmannian(
                         prev_projection, 
-                        self.projections_dict[(method, pe_strategy)]
+                        self.projections_dict[(method, pe_strategy)][-1]
                     )
                     self.subspace_diagnostics[(method, pe_strategy)]["grassmannian"].append(g)
-                    self.fit_outcome_model(method, pe_strategy)
+                    if method != "pca_norefit_rt":
+                        self.fit_outcome_model(method, pe_strategy)
                     # run diagnostics on the updated subspaces
                     self.compute_subspace_diagnostics(method, pe_strategy, n_test=1024)
             
@@ -924,6 +930,7 @@ class RetrainingBopeExperiment:
             if len(self.final_candidate_results[method][pe_strategy]) > 0:
                 best_so_far = \
                     self.final_candidate_results[method][pe_strategy][-1]["best_util_so_far"]
+                print(f"    -- final_candidate_results[{method}][{pe_strategy}] already exists, taking the last best_so_far = {best_so_far:.4f}")
             else:
                 # start with best value in initial experimentation batch, and save it
                 best_so_far = max(self.util_func(self.initial_Y)).item()
@@ -935,6 +942,7 @@ class RetrainingBopeExperiment:
                     "run_id": self.trial_idx,
                 }
                 self.final_candidate_results[method][pe_strategy].append(init_exp_result)
+                print(f"    -- final_candidate_results[{method}][{pe_strategy}] does not exist, initializing with best util in initial batch best_so_far = {best_so_far:.4f}")
                  
             print("    ** best so far before BO exp stage: ", best_so_far) 
 
@@ -948,14 +956,15 @@ class RetrainingBopeExperiment:
                 # update subspace and refit util model for retraining methods
                 if method.endswith("rt"):
                     print(f"    ~~ Retraining subspace using [{method}] with [{pe_strategy}] during BO")
-                    prev_projection = self.projections_dict[(method, pe_strategy)]
+                    prev_projection = self.projections_dict[(method, pe_strategy)][-1]
                     self.compute_projections(method, pe_strategy)
                     _, _, g = compute_grassmannian(
                         prev_projection,
-                        self.projections_dict[(method, pe_strategy)]\
+                        self.projections_dict[(method, pe_strategy)][-1]
                     )
                     self.subspace_diagnostics[(method, pe_strategy)]["grassmannian"].append(g)
-                    self.fit_util_model(method, pe_strategy, save_model=True)
+                    if method != "pca_norefit_rt": # TODO: check
+                        self.fit_util_model(method, pe_strategy, save_model=True)
                     self.compute_subspace_diagnostics(method, pe_strategy, n_test=1024)
                 
                 # refit outcome model for all methods, whether retraining or not
@@ -975,6 +984,7 @@ class RetrainingBopeExperiment:
         """
     
         # all methods use the same initial experimentation data
+        print("============= Generating initial experimentation data =============")
         self.generate_random_experiment_data(
             self.initial_experimentation_batch,
             compute_util=True
@@ -991,22 +1001,43 @@ class RetrainingBopeExperiment:
                     self.run_PE_stage(method)
                     self.run_BO_experimentation_stage(method, meta_iter)
 
-                    torch.save(dict(self.PE_session_results), self.output_path +
-                            'PE_session_results_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(dict(self.final_candidate_results), self.output_path +
-                            'final_candidate_results_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(dict(self.pref_data_dict), self.output_path +
-                            'pref_data_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(dict(self.subspace_diagnostics), self.output_path +
-                            'subspace_diagnostics_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(dict(self.util_postmean_landscape), self.output_path +
-                            'util_postmean_trial=' + str(self.trial_idx) + '.th')
-                    torch.save(dict(self.BO_data_dict), self.output_path +
-                            'BO_data_trial=' + str(self.trial_idx) + '.th')
-                    print('\n')
+                    if self.save_results:
+                        torch.save(dict(self.PE_session_results), self.output_path +
+                                'PE_session_results_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        torch.save(dict(self.final_candidate_results), self.output_path +
+                                'final_candidate_results_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        torch.save(dict(self.pref_data_dict), self.output_path +
+                                'pref_data_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        torch.save(dict(self.subspace_diagnostics), self.output_path +
+                                'subspace_diagnostics_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        # torch.save(dict(self.util_postmean_landscape), self.output_path +
+                                # 'util_postmean_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        torch.save(dict(self.BO_data_dict), self.output_path +
+                                'BO_data_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        torch.save(dict(self.projections_dict), self.output_path +
+                                'projections_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        print(f"========== Saved results for PE-BO meta-iter {meta_iter} ==========\n")
                 print('\n\n')
 
             except Exception as e:
                 print('Error occurred: ', e)
                 print(f"============= {method} failed, skipping =============")
+
+                if self.save_results:
+                    torch.save(dict(self.PE_session_results), self.output_path +
+                            'PE_session_results_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    torch.save(dict(self.final_candidate_results), self.output_path +
+                            'final_candidate_results_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    torch.save(dict(self.pref_data_dict), self.output_path +
+                            'pref_data_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    torch.save(dict(self.subspace_diagnostics), self.output_path +
+                            'subspace_diagnostics_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    # torch.save(dict(self.util_postmean_landscape), self.output_path +
+                            # 'util_postmean_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    torch.save(dict(self.BO_data_dict), self.output_path +
+                            'BO_data_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    torch.save(dict(self.projections_dict), self.output_path +
+                                'projections_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    print('still saved partial results')
+                
                 continue
