@@ -81,6 +81,7 @@ EXPERIMENT_SETUPS = {
         "n_BO_iters": 1,
         "BO_batch_size": 8,
         "n_meta_iters": 10,
+        "standardize": False,
     },
     "16by16_rectangle_gradientAwareArea": {
         "pe_strategies": ["EUBO-zeta"],
@@ -91,6 +92,7 @@ EXPERIMENT_SETUPS = {
         "n_BO_iters": 1,
         "BO_batch_size": 16,
         "n_meta_iters": 5,
+        "standardize": False,
     },
     "robot_3_100_1": {
         "pe_strategies": ["EUBO-zeta"],

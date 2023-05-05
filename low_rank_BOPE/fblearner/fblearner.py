@@ -1,22 +1,23 @@
 import copy
 import random
 import time
-from typing import Any, Dict, List, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Tuple
 
 import fblearner.flow.api as flow
 import gpytorch
 import numpy as np
 import torch
 from make_problem import make_problem_and_util_func
-from problem_setups import PROBLEM_SETUPS
+from problem_setups import PROBLEM_SETUPS, EXPERIMENT_SETUPS
 
+from low_rank_BOPE.bope_class_retraining import RetrainingBopeExperiment
 
 class OneRun(NamedTuple):
-    exp_candidate_results: List[Dict[str, Any]]
-    within_session_results: List[Dict[str, Any]]
-    # TODO: more results?
-    # TODO: confirm return type, key could be Tuple[str]
-
+    exp_candidate_results: Dict[str, Dict[str, Any]]
+    PE_session_results: Dict[str, Dict[str, Any]]
+    pref_data_dict: Dict[Tuple[str], Any]
+    subspace_diagnostics: Dict[Tuple[str], Any]
+    BO_data_dict: Dict[Tuple[str], Any]
 
 
 """
@@ -38,49 +39,28 @@ List of problem names:
 
 """
 
-
-
-# workflow OPTION 1
+# As an example, running "8by8_rectangle_gradientAwareArea"
 @flow.registered(owners=["oncall+ae_experiments"])
 @flow.typed()
 def main(
-    problem_list: List[str],
-    baselines:  List[str],
-    trial_range: List[int],
+    problem_name: str = "8by8_rectangle_gradientAwareArea", 
+    baselines:  List[str] = ["pca"],
+    trial_range: List[int] = list(range(10)),
 ) -> Dict[str, List[OneRun]]:
     
-    all_results = {}
+    problem, util_func = make_problem_and_util_func(
+        problem_name, options = PROBLEM_SETUPS[problem_name])
     
-    # for problem_name in problem_list:
-    #    problem, util_func = make_problem_and_util_func(problem_name)
-    #    for baseline in baselines:
-    #       all_results[f"{problem_name}_{baseline}_{trial_idx}"] = \
-    #            [run_one_trial(problem, util_func, [baseline], trial_idx) \
-    #               for for trial_idx in trial_range]
-
-    return all_results
-
-
-# workflow OPTION 2
-@flow.registered(owners=["oncall+ae_experiments"])
-@flow.typed()
-def main(
-    problem_name: str,
-    baselines:  List[str],
-    trial_range: List[int],
-) -> Dict[str, List[OneRun]]:
+    for baseline in baselines:
+        for trial_idx in trial_range:
+            run_one_trial(
+                problem=problem, 
+                util_func=util_func, 
+                methods=[baseline], 
+                trial_idx=trial_idx,
+                experiment_options=EXPERIMENT_SETUPS[problem_name]
+            )
     
-    all_results = {}
-
-    # problem, util_func = make_problem_and_util_func(problem_name, options = PROBLEM_SETUPS[problem_name])
-    # for baseline in baselines:
-    #    all_results[f"{problem_name}_{baseline}_{trial_idx}"] = \
-    #            [run_one_trial(problem, util_func, [baseline], trial_idx) \
-    #               for for trial_idx in trial_range]
-    
-    return all_results
-
-# TODO: how do I allow different trials indices for different problems? 
 
 @flow.flow_async()
 @flow.typed()
@@ -89,14 +69,26 @@ def run_one_trial(
     util_func: torch.nn.Module,
     methods: List[str],
     trial_idx: int,
-    experiment_config: Dict[str, Any],
+    experiment_options: Dict[str, Any],
 ) -> OneRun:
 
-    # create experiment class with specified args
-    # call exp.run_BOPE_loop()
-    # return exp results
-
+    # create experiment class with specified setup
+    exp = RetrainingBopeExperiment(
+        problem = problem,
+        util_func=util_func,
+        methods=methods,
+        pe_strategies = ["EUBO-zeta"],
+        trial_idx=trial_idx,
+        save_results = False,
+        **experiment_options
+    )
+    
+    exp.run_BOPE_loop()
+    
     return OneRun(
-        exp_candidate_results=exp_candidate_results,
-        within_session_results=within_session_results,
+        exp_candidate_results=exp.final_candidate_results,
+        PE_session_results=exp.PE_session_results,
+        pref_data_dict=exp.pref_data_dict,
+        subspace_diagnostics=exp.subspace_diagnostics,
+        BO_data_dict=exp.BO_data_dict,
     )
