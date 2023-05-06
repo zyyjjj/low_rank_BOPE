@@ -162,6 +162,7 @@ class RetrainingBopeExperiment:
         if "pca" in methods:
             # run unweighted pca first, so that the learned latent_dim
             # informs the other methods with dim reduction
+            # (random_linear_proj, random_subset, spca)
             self.methods = ["pca"] + [m for m in methods if m != "pca"]
             print('self.methods, ', self.methods)
         else:
@@ -473,11 +474,10 @@ class RetrainingBopeExperiment:
         start_time = time.time()
         fit_gpytorch_mll(mll_outcome)        
         model_fitting_time = time.time() - start_time
-        rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000)
-        # self.subspace_diagnostics[(method, pe_strategy)]["model_fitting_time"].append(model_fitting_time)
-        self.subspace_diagnostics[(method, pe_strategy)]["rel_mse"].append(rel_mse)
-
         self.time_consumption[(method, pe_strategy)]["outcome_model_fitting_time"].append(model_fitting_time)
+
+        rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000)
+        self.subspace_diagnostics[(method, pe_strategy)]["rel_mse"].append(rel_mse)
 
         self.outcome_models_dict[(method, pe_strategy)] = outcome_model
 
@@ -946,7 +946,7 @@ class RetrainingBopeExperiment:
                     # run diagnostics on the updated subspaces
                     self.compute_subspace_diagnostics(method, pe_strategy, n_test=1024)
             
-            # log time required to do PE # TODO: revisit
+            # log time required to do PE 
             PE_time = time.time() - pe_start_time
             self.time_consumption[(method, pe_strategy)]["PE_time"].append(PE_time)
 
