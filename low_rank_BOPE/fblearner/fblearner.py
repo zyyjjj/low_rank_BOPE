@@ -2,6 +2,7 @@ import copy
 import random
 import time
 from typing import Any, Dict, List, NamedTuple, Tuple
+from collections import defaultdict
 
 import fblearner.flow.api as flow
 import gpytorch
@@ -15,9 +16,9 @@ from low_rank_BOPE.bope_class_retraining import RetrainingBopeExperiment
 class OneRun(NamedTuple):
     exp_candidate_results: Dict[str, Dict[str, Any]]
     PE_session_results: Dict[str, Dict[str, Any]]
-    pref_data_dict: Dict[Tuple[str], Any]
-    subspace_diagnostics: Dict[Tuple[str], Any]
-    BO_data_dict: Dict[Tuple[str], Any]
+    pref_data_dict: Dict[str, Dict[str, Any]]
+    subspace_diagnostics: Dict[str, Dict[str, Any]]
+    BO_data_dict: Dict[str, Dict[str, Any]]
 
 
 """
@@ -77,18 +78,30 @@ def run_one_trial(
         problem = problem,
         util_func=util_func,
         methods=methods,
-        pe_strategies = ["EUBO-zeta"],
         trial_idx=trial_idx,
         save_results = False,
         **experiment_options
     )
     
     exp.run_BOPE_loop()
-    
+
+    # process pref_data_dict, subspace_diagnostics, BO_data_dict
+    # turn them into a nested dict rather than a dict with Tuple[str] as key
+    pref_data_dict_, subspace_diagnostics_, BO_data_dict_ = defaultdict(dict), defaultdict(dict), defaultdict(dict)
+
+    for key in exp.pref_data_dict.keys():
+        pref_data_dict_[key[0]][key[1]] = exp.pref_data_dict[key]
+    for key in exp.subspace_diagnostics.keys():
+        subspace_diagnostics_[key[0]][key[1]] = exp.subspace_diagnostics[key]
+    for key in exp.BO_data_dict.keys():
+        BO_data_dict_[key[0]][key[1]] = exp.BO_data_dict[key]
+
+    # these are all defaultdict; if an error occurs, can try casting them to dict 
+    # using e.g., exp_candidate_results=dict(exp.final_candidate_results)
     return OneRun(
         exp_candidate_results=exp.final_candidate_results,
         PE_session_results=exp.PE_session_results,
-        pref_data_dict=exp.pref_data_dict,
-        subspace_diagnostics=exp.subspace_diagnostics,
-        BO_data_dict=exp.BO_data_dict,
+        pref_data_dict=pref_data_dict_,
+        subspace_diagnostics=subspace_diagnostics_,
+        BO_data_dict=BO_data_dict_,
     )
