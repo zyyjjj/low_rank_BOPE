@@ -91,7 +91,6 @@ class RetrainingBopeExperiment:
     One run handles one problem and >=1 methods and >=1 pe_strategies.
     """
 
-
     attr_list = {
         "pca_var_threshold": 0.95,
         "initial_experimentation_batch": 16,
@@ -105,13 +104,12 @@ class RetrainingBopeExperiment:
         "num_restarts": 20,
         "raw_samples": 128,
         "batch_limit": 4,
-        "sampler_num_outcome_samples": 64,
+        "sampler_num_outcome_samples": 128,
         "maxiter": 1000,
         "initial_latent_dim": None,
         "min_stdv": 100000,
         "true_axes": None, # specify these for synthetic problems
         "standardize": True,
-        "include_xp1_candidates": True, # if true, include candidate designs in the first exp stage too in BO
         "wpca_type": "rank_cts",
         "wpca_options": {"k": 10, "num_points_to_discard": 2},
         "compute_true_opt": False,
@@ -182,14 +180,14 @@ class RetrainingBopeExperiment:
         self.projections_dict = defaultdict(list) # stores list of projections to subspaces, by (method, pe_strategy)
         self.transforms_covar_dict = {} # specify outcome and input transforms, covariance modules, by (method, pe_strategy)
         self.subspace_training_Y = {} # outcome data used for subspace learning, by (method, pe_strategy)
-        self.BO_data_dict = defaultdict(dict) # stores BO candidate designs and outcome values, by (method, pe_strategy)
+        self.BO_data_dict = defaultdict(dict) # stores observed (X,Y) in initial batch and BO, by (method, pe_strategy)
 
         # save results
-        self.PE_time_dict = {}
         self.PE_session_results = defaultdict(defaultdict_list) # [method][pe_strategy] 
         self.final_candidate_results = defaultdict(defaultdict_list) # [method][pe_strategy]
         self.subspace_diagnostics = defaultdict(defaultdict_list) # [(method, pe_strategy)][diag_metric] = list
         self.util_postmean_landscape = defaultdict(list) # [(method, pe_strategy)] = list of statistics tuples
+        self.time_consumption = defaultdict(defaultdict_list) # [(method, pe_strategy)][time_metric] = list
 
         # estimate true optimal utility through sampling
         if self.compute_true_opt:
@@ -240,6 +238,14 @@ class RetrainingBopeExperiment:
                         "comps": comps
                     }
                     self.subspace_training_Y[(method, pe_strategy)] = self.initial_Y
+        
+        # save the data to BO_data_dict
+        for method in self.methods:
+            for pe_strategy in self.pe_strategies:
+                self.BO_data_dict[(method, pe_strategy)] = {
+                    "X": self.initial_X,
+                    "Y": self.initial_Y
+                }
 
 
     def compute_projections(self, method: str, pe_strategy: str):
@@ -257,8 +263,7 @@ class RetrainingBopeExperiment:
         
         projection = None
 
-        new_Y = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
-        train_Y = torch.cat([self.initial_Y, new_Y], dim=0)
+        train_Y = self.BO_data_dict[(method, pe_strategy)]["Y"]
 
         if method.startswith("pca"): 
 
@@ -448,14 +453,10 @@ class RetrainingBopeExperiment:
         if method == "random_search":
             return
 
-        start_time = time.time()
+        # get existing data from self.BO_data_dict 
+        train_X = self.BO_data_dict[(method, pe_strategy)]["X"]
+        train_Y = self.BO_data_dict[(method, pe_strategy)]["Y"]
 
-        # fetch new (x,y) data from self.BO_data_dict 
-        # and concatenate with self.initial_X, self.initial_Y
-        new_X = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
-        new_Y = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
-        train_X = torch.cat([self.initial_X, new_X], dim=0)
-        train_Y = torch.cat([self.initial_Y, new_Y], dim=0)
         print(f"    -- Fitting outcome model using [{method}] and [{pe_strategy}]")
         if self.verbose:   
             print(f"        -- train_X.shape: {train_X.shape}", f"train_Y.shape: {train_Y.shape}")
@@ -468,17 +469,22 @@ class RetrainingBopeExperiment:
             )
         )
         mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
-        fit_gpytorch_mll(mll_outcome)        
         
+        start_time = time.time()
+        fit_gpytorch_mll(mll_outcome)        
         model_fitting_time = time.time() - start_time
         rel_mse = check_outcome_model_fit(outcome_model, self.problem, n_test=1000)
-        self.subspace_diagnostics[(method, pe_strategy)]["model_fitting_time"].append(model_fitting_time)
+        # self.subspace_diagnostics[(method, pe_strategy)]["model_fitting_time"].append(model_fitting_time)
         self.subspace_diagnostics[(method, pe_strategy)]["rel_mse"].append(rel_mse)
+
+        self.time_consumption[(method, pe_strategy)]["outcome_model_fitting_time"].append(model_fitting_time)
 
         self.outcome_models_dict[(method, pe_strategy)] = outcome_model
 
 
-    def fit_util_model(self, method: str, pe_strategy: str, save_model: bool = False):
+    def fit_util_model(
+            self, method: str, pe_strategy: str, 
+            save_model: bool = False, save_model_fit_time: bool=True):
         r"""Fit and return utility model for given method and pe_strategy."""
 
         print(f"    -- Fitting util model")
@@ -499,10 +505,15 @@ class RetrainingBopeExperiment:
 
         mll_util = PairwiseLaplaceMarginalLogLikelihood(
             util_model.likelihood, util_model)
+        start_time = time.time()
         fit_gpytorch_mll(mll_util)
+        model_fitting_time = time.time() - start_time
 
         if save_model:
             self.util_models_dict[(method, pe_strategy)] = util_model # TODO: will this increase memory consumption a lot?
+
+        if save_model_fit_time:
+            self.time_consumption[(method, pe_strategy)]["util_model_fitting_time"].append(model_fitting_time)
 
         return util_model
 
@@ -529,7 +540,8 @@ class RetrainingBopeExperiment:
             for _ in range(3):
                 try:
                     util_model = self.fit_util_model(
-                        method, pe_strategy, save_model=False
+                        method, pe_strategy, save_model=False,
+                        save_model_fit_time=True
                     )
                     fit_model_succeed = True
                     break
@@ -539,6 +551,8 @@ class RetrainingBopeExperiment:
                 print(
                     "    -- fit_util_model() failed 3 times, stop current call of run_pref_learn()"
                 )
+            
+            gen_pe_cand_start_time = time.time()
 
             if pe_strategy == "EUBO-zeta":
                 with botorch.settings.debug(state=True):
@@ -594,6 +608,9 @@ class RetrainingBopeExperiment:
                     cand_X).rsample().squeeze(0).detach()
             else:
                 raise RuntimeError("Unknown preference exploration strategy!")
+        
+            gen_pe_cand_time = time.time() - gen_pe_cand_start_time
+            self.time_consumption[(method, pe_strategy)]["gen_pe_cand_time"].append(gen_pe_cand_time)
 
             cand_Y = cand_Y.detach().clone()
             cand_util_val = self.util_func(cand_Y)
@@ -644,7 +661,7 @@ class RetrainingBopeExperiment:
         # But this function is called every three times run_pref_learning() is called
         # so the amount of duplicated effort is not large 
         util_model = self.fit_util_model(
-            method, pe_strategy, save_model=True
+            method, pe_strategy, save_model=True, save_model_fit_time=False
         )
         sampler = SobolQMCNormalSampler(num_pref_samples)
         pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
@@ -656,7 +673,8 @@ class RetrainingBopeExperiment:
             problem=self.problem,
             q=1,
             acqf_name="posterior_mean",
-            seed=self.trial_idx
+            seed=self.trial_idx,
+            sampler_num_outcome_samples=self.sampler_num_outcome_samples,
         )
         post_mean_util = self.util_func(
             self.problem.evaluate_true(post_mean_cand_X)).item()
@@ -768,10 +786,9 @@ class RetrainingBopeExperiment:
             sampler = SobolQMCNormalSampler(1)
             pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
 
-            cand_Xs = self.BO_data_dict[(method, pe_strategy)].get("X", torch.tensor([]))
-            cand_Ys = self.BO_data_dict[(method, pe_strategy)].get("Y", torch.tensor([]))        
+            baseline_X = self.BO_data_dict[(method, pe_strategy)]["X"]
 
-            baseline_X = torch.cat([self.initial_X, cand_Xs], dim=0)
+            gen_bo_cand_start_time = time.time()
 
             # find experimental candidate(s) that maximize the noisy EI acqf
             new_cand_X, acqf_val = gen_exp_cand(
@@ -789,6 +806,9 @@ class RetrainingBopeExperiment:
             print('        -- new_cand_X_posterior_mean_util: ', new_cand_X_posterior_mean_util)
             # print('average new_cand_X_posterior_var: ', torch.mean(new_cand_X_posterior_var))
             new_cand_Y = self.problem(new_cand_X).detach()
+
+            gen_bo_cand_time = time.time() - gen_bo_cand_start_time
+            self.time_consumption[(method, pe_strategy)]["gen_bo_cand_time"].append(gen_bo_cand_time)
 
             qneiuu_util = self.util_func(new_cand_Y).detach() # shape (q, 1) or q
             print(
@@ -813,7 +833,6 @@ class RetrainingBopeExperiment:
                 "method": method,
                 "strategy": pe_strategy,
                 "run_id": self.trial_idx,
-                "PE_time": self.PE_time_dict[(method, pe_strategy)], # TODO: needed?
                 "util_model_acc": util_model_acc,
             }
             
@@ -821,9 +840,13 @@ class RetrainingBopeExperiment:
             exp_result["true_opt"] = self.true_opt
 
             self.BO_data_dict[(method, pe_strategy)]["X"] = torch.cat(
-                (cand_Xs, new_cand_X), dim=0)
+                (self.BO_data_dict[(method, pe_strategy)]["X"], new_cand_X),
+                dim=0
+            )
             self.BO_data_dict[(method, pe_strategy)]["Y"] = torch.cat(
-                (cand_Ys, new_cand_Y), dim=0)
+                (self.BO_data_dict[(method, pe_strategy)]["Y"], new_cand_Y),
+                dim=0
+            )
 
         self.final_candidate_results[method][pe_strategy].append(exp_result)
 
@@ -879,7 +902,7 @@ class RetrainingBopeExperiment:
             self.compute_projections(method, pe_strategy)
             self.fit_outcome_model(method, pe_strategy)        
 
-    def run_PE_stage(self, method: str):
+    def run_PE_stage(self, method: str, meta_iter: int):
         r"""Run preference exploration stage. """
 
         if method == "random_search": 
@@ -890,9 +913,15 @@ class RetrainingBopeExperiment:
             if any(method.startswith(header) for header in self.subspace_methods_headers):
                 self.compute_subspace_diagnostics(method, pe_strategy, n_test=1000)
 
-            start_time = time.time()
+            pe_start_time = time.time()
 
             print(f"===== Running PE using [{method}] with [{pe_strategy}] =====")
+
+            # compute max utility from initial data if meta_iter == 0
+            if meta_iter == 0:
+                self.PE_session_results[method][pe_strategy].append(
+                    self.find_max_posterior_mean(method, pe_strategy)
+                )
 
             for j in range(self.n_check_post_mean):
 
@@ -917,9 +946,9 @@ class RetrainingBopeExperiment:
                     # run diagnostics on the updated subspaces
                     self.compute_subspace_diagnostics(method, pe_strategy, n_test=1024)
             
-            # log time required to do PE
-            PE_time = time.time() - start_time
-            self.PE_time_dict[(method, pe_strategy)] = PE_time 
+            # log time required to do PE # TODO: revisit
+            PE_time = time.time() - pe_start_time
+            self.time_consumption[(method, pe_strategy)]["PE_time"].append(PE_time)
 
 
     def run_BO_experimentation_stage(self, method: str, meta_iter: int): 
@@ -932,6 +961,7 @@ class RetrainingBopeExperiment:
                     self.final_candidate_results[method][pe_strategy][-1]["best_util_so_far"]
                 print(f"    -- final_candidate_results[{method}][{pe_strategy}] already exists, taking the last best_so_far = {best_so_far:.4f}")
             else:
+                # equivalently, if meta_iter == 0
                 # start with best value in initial experimentation batch, and save it
                 best_so_far = max(self.util_func(self.initial_Y)).item()
                 init_exp_result = {
@@ -945,6 +975,8 @@ class RetrainingBopeExperiment:
                 print(f"    -- final_candidate_results[{method}][{pe_strategy}] does not exist, initializing with best util in initial batch best_so_far = {best_so_far:.4f}")
                  
             print("    ** best so far before BO exp stage: ", best_so_far) 
+
+            bo_start_time = time.time()
 
             for iter in range(self.n_BO_iters):
                 print(f"== Running BO iteration {iter} using [{method}] with [{pe_strategy}] ==")
@@ -969,6 +1001,9 @@ class RetrainingBopeExperiment:
                 
                 # refit outcome model for all methods, whether retraining or not
                 self.fit_outcome_model(method, pe_strategy)
+            
+            bo_time = time.time() - bo_start_time
+            self.time_consumption[(method, pe_strategy)]["BO_time"].append(bo_time)
 
 
 
@@ -984,7 +1019,7 @@ class RetrainingBopeExperiment:
         """
     
         # all methods use the same initial experimentation data
-        print("============= Generating initial experimentation data =============")
+        print("============= Generating initial experimentation data for all methods =============")
         self.generate_random_experiment_data(
             self.initial_experimentation_batch,
             compute_util=True
@@ -998,8 +1033,10 @@ class RetrainingBopeExperiment:
 
                 for meta_iter in range(self.n_meta_iters):
                     print(f"========== Running PE-BO meta-iter {meta_iter} ==========")
-                    self.run_PE_stage(method)
+                    self.run_PE_stage(method, meta_iter)
                     self.run_BO_experimentation_stage(method, meta_iter)
+
+                    print(f"========== Finished running PE-BO meta-iter {meta_iter} for [{method}] ==========\n")
 
                     if self.save_results:
                         torch.save(dict(self.PE_session_results), self.output_path +
@@ -1016,6 +1053,8 @@ class RetrainingBopeExperiment:
                                 'BO_data_trial=' + str(self.trial_idx) + f'_{method}.th')
                         torch.save(dict(self.projections_dict), self.output_path +
                                 'projections_trial=' + str(self.trial_idx) + f'_{method}.th')
+                        torch.save(dict(self.time_consumption), self.output_path +
+                                'time_consumption_trial=' + str(self.trial_idx) + f'_{method}.th')
                         print(f"========== Saved results for PE-BO meta-iter {meta_iter} ==========\n")
                 print('\n\n')
 
@@ -1038,6 +1077,8 @@ class RetrainingBopeExperiment:
                             'BO_data_trial=' + str(self.trial_idx) + f'_{method}.th')
                     torch.save(dict(self.projections_dict), self.output_path +
                                 'projections_trial=' + str(self.trial_idx) + f'_{method}.th')
+                    torch.save(dict(self.time_consumption), self.output_path +
+                                'time_consumption_trial=' + str(self.trial_idx) + f'_{method}.th')
                     print('still saved partial results')
                 
                 continue
