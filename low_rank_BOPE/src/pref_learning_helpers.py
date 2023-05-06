@@ -304,7 +304,7 @@ def gen_exp_cand(
     acqf_name: str,
     seed: int,
     X: Optional[Tensor] = None,
-    sampler_num_outcome_samples: int = 64,
+    sampler_num_outcome_samples: int = 128,
     num_restarts: int = 8,
     raw_samples: int = 64,
     batch_limit: int = 4,
