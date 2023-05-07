@@ -1,4 +1,7 @@
 from typing import Dict, Any
+import os
+import torch
+import numpy as np
 
 from low_rank_BOPE.test_problems.car_problems import problem_setup_augmented
 from low_rank_BOPE.test_problems.shapes import GradientAwareAreaUtil, Image
@@ -63,7 +66,7 @@ def make_problem_and_util_func(
             init_inventory = options.get("init_inventory", 50),
             x_baseline = options.get("x_baseline", 50),
             x_scaling = options.get("x_scaling", 50),
-            params = params) # TODO: specify params in a better way, which is another dict
+            params = options["simulation_params"]) 
         util_func = InventoryUtil(
             stockout_penalty_per_unit=options.get("stockout_penalty_per_unit", 0.1),
             holding_cost_per_unit=options.get("holding_cost_per_unit", 0.1),
@@ -72,8 +75,48 @@ def make_problem_and_util_func(
         ) 
     
     elif problem_name.startswith("PTS"):
-        # TODO: do something similar as in `synthetic_PTS_problems_runner.py`
-        # if possible, use the cached PC-GP
-        pass
+
+        script_dir = os.path.dirname(os.path.abspath(__file__)) # TODO: test this
+        
+        CSVData = open(
+            os.path.join(script_dir, "data", "PTS", 
+                         f"metric_corr_exp_{options['matrix_id']}.csv")
+        )
+        metric_corr = torch.tensor(
+            np.loadtxt(CSVData, delimiter=","), dtype=torch.double)
+        outcome_dim = len(metric_corr)
+        U, S, V = torch.linalg.svd(
+            metric_corr + torch.diag(torch.ones(len(metric_corr))) * 1e-10)
+        true_axes = V[:options["latent_dim"]]
+        scaling = torch.sqrt(S[:options["latent_dim"]])
+
+        problem = make_problem(
+            input_dim = input_dim,
+            outcome_dim = outcome_dim,
+            noise_std = options["noise_std"],
+            true_axes = true_axes,
+            PC_lengthscales = options["PC_lengthscales"],
+            PC_scaling_factors = scaling,
+            problem_seed = options["problem_seed"],
+            state_dict_str = None
+        )
+
+        beta = make_controlled_coeffs(
+            full_axes=V,
+            latent_dim=options["latent_dim"],
+            alpha=options["alpha"],
+            n_reps = 1,
+            dtype=torch.double,
+            seed = options["problem_seed"]
+        ) # shape is 1 x outcome_dim
+
+        if options["util_type"] == "linear":
+            util_func = LinearUtil(beta=beta.transpose(-2, -1))
+        elif options["util_type"] == "piecewiselinear":
+            util_func = PiecewiseLinear(
+                beta1=beta * options.get("util_coeff_multiplier", 5.0),
+                beta2=beta,
+                thresholds=torch.tensor([0.]*outcome_dim, dtype=torch.double)
+            )
 
     return problem, util_func

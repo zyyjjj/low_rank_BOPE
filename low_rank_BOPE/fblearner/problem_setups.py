@@ -1,4 +1,4 @@
-
+# Configuration for the outcome and utility functions
 
 PROBLEM_SETUPS = {
     "vehiclesafety_5d3d_piecewiselinear_24": {
@@ -28,6 +28,12 @@ PROBLEM_SETUPS = {
         "final_z_reward": 0.1,
         "z_var_penalty": 0.1
     },
+    "robot_3_500_5": {
+        "y_drift_penalty": 0.1,
+        "y_var_penalty": 0.1,
+        "final_z_reward": 0.1,
+        "z_var_penalty": 0.1
+    },
     "inventory_100": {
         "init_inventory": 50,
         "x_baseline": 50,
@@ -35,11 +41,41 @@ PROBLEM_SETUPS = {
         "stockout_penalty_per_unit": 0.1,
         "holding_cost_per_unit": 0.1,
         "order_cost_one_time": 0.0,
-        "order_cost_per_unit": 0.1
+        "order_cost_per_unit": 0.1,
+        "simulation_params": {
+            'demand_mean' : 5, 
+            'demand_std' : 2,
+            'lead_time' : 10, # tau in the slides
+            'stockout_penalty' : 0.1, # doesn't matter for us
+            'holding_cost' : 0.01, # doesn't matter for us
+            'K' : 1, # doesn't matter for us 
+            'c' : 0.1 # doesn't matter for us
+        }
+    },
+    "PTS=6_input=1_outcome=45_latent=3_alpha=0.5_pwlinear": {
+        "matrix_id": 6,
+        "input_dim": 1,
+        "outcome_dim": 45,
+        "latent_dim": 3,
+        "alpha": 0.5,
+        "util_type": "piecewiselinear",
+        "PC_lengthscales": [0,1, 0.1, 0.1],
+        "problem_seed": 1234
+    },
+    "PTS=6_input=1_outcome=45_latent=3_alpha=1.0_pwlinear": {
+        "matrix_id": 6,
+        "input_dim": 1,
+        "outcome_dim": 45,
+        "latent_dim": 3,
+        "alpha": 1.0,
+        "util_type": "piecewiselinear",
+        "util_coeff_multiplier": 5.0,
+        "PC_lengthscales": [0,1, 0.1, 0.1],
+        "problem_seed": 1234
     }
-    # TODO: add problem setup for synthetic-PTS problem
 }
 
+# Configuration for BOPE experiment pipeline
 
 EXPERIMENT_SETUPS = {
     "vehiclesafety_5d3d_piecewiselinear_24": {
@@ -113,6 +149,15 @@ EXPERIMENT_SETUPS = {
         "n_BO_iters": 1,
         "BO_batch_size": 16,
         "n_meta_iters": 5,
+    },
+    "PTS=6_input=1_outcome=45_latent=3_alpha=1.0_pwlinear": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 4,
+        "init_exp_batch": 32,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 8,
+        "n_meta_iters": 10,
     }
-    # TODO: add experiment setup for synthetic-PTS problem
 }
