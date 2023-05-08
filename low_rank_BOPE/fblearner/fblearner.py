@@ -46,14 +46,15 @@ List of problem names:
 def main(
     problem_name: str = "8by8_rectangle_gradientAwareArea", 
     baselines:  List[str] = ["pca"],
-    trial_range: List[int] = list(range(10)),
+    trial_idx_start: int = 1,
+    trial_idx_end: int = 10,
 ) -> Dict[str, List[OneRun]]:
     
     problem, util_func = make_problem_and_util_func(
         problem_name, options = PROBLEM_SETUPS[problem_name])
     
     for baseline in baselines:
-        for trial_idx in trial_range:
+        for trial_idx in range(trial_idx_start, trial_idx_end+1):
             run_one_trial(
                 problem=problem, 
                 util_func=util_func, 
