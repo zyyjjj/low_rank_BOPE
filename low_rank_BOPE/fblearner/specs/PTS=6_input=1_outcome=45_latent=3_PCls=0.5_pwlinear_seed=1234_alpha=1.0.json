@@ -1,0 +1,11 @@
+{
+    "problem_name": "PTS=6_input=1_outcome=45_latent=3_PCls=0.5_pwlinear_seed=1234_alpha=1.0",
+    "baselines": [
+        "st",
+        "pca",
+        "pca_rt",
+        "random_search"
+    ],
+    "trial_idx_start": 1,
+    "trial_idx_end": 50
+}

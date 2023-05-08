@@ -1,0 +1,11 @@
+{
+    "problem_name": "vehiclesafety_5d3d_piecewiselinear_24",
+    "baselines": [
+        "st",
+        "pca",
+        "pca_rt",
+        "random_search"
+    ],
+    "trial_idx_start": 1,
+    "trial_idx_end": 50
+}
