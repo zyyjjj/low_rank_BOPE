@@ -12,6 +12,8 @@ import math
 
 colors_dict = {
     "pca": "tab:red", 
+    "pca_rt": "tab:pink",
+    "pca_norefit_rt": "tab:brown",
     "pca_all_rt": "tab:pink",
     "pca_eubo_rt": "tab:cyan",
     "pca_postmax_rt": "tab:orange",
@@ -22,6 +24,7 @@ colors_dict = {
     "true_proj": "tab:pink",
     "random_linear_proj": "tab:green", 
     "random_subset": "tab:orange", 
+    "random_search": "tab:cyan",
     "mtgp": "tab:purple", 
     "lmc1": "tab:pink",    
     "lmc2": "tab:brown"
@@ -34,6 +37,8 @@ marker_dict = {"$EUBO-\zeta$": "o", "True Utility": "s", "Random-f": "^"}
 labels_dict = {
     "st": "Indep", 
     "pca": "PCA", 
+    "pca_rt": "PCA retraining",
+    "pca_norefit_rt": "PCA retraining w/o refitting other model",
     "pca_all_rt": "PCA retraining using all",
     "pca_eubo_rt": "PCA retraining with EUBO winners",
     "pca_postmax_rt": "PCA retraining with posterior max",
@@ -42,6 +47,7 @@ labels_dict = {
     "pcr": "PCR", 
     "random_linear_proj": "Rand-linear-proj", 
     "random_subset": "Rand-subset", 
+    "random_search": "Random search",
     "mtgp": "MTGP", 
     "lmc1": "LMC1", "lmc2": "LMC2",
     "true_proj": "True-proj"
@@ -70,7 +76,9 @@ x_jitter_dict = {
 
 performance_over_comps_labels_dict = {
     "util": "True utility of estimated \n utility-maximizing design",
-    "util_model_acc": "Rank accuracy of the utility model",
+    "util_model_acc": "Rank accuracy of util model",
+    "util_model_acc_top_half": "Rank accuracy of util model on top 50% test points",
+    "util_model_acc_top_quarter": "Rank accuracy of util model on top 25% test points",
     "overall_model_acc": "Overall accuracy of outcome and utility models",
 }
     
@@ -397,10 +405,12 @@ def plot_subspace_diagnostics_single(
     try_trial = 0
     while not found_valid_trial:
         try:
-            num_retrain_and_boiters = len(outputs[problem]["subspace_diagnostics"][available_trials[try_trial]][("pca_all_rt", pe_strategy)][metric])
+            num_retrain_and_boiters = len(outputs[problem]["subspace_diagnostics"][available_trials[try_trial]][("pca_rt", pe_strategy)][metric])
             found_valid_trial = True
         except:
             try_trial += 1
+
+    print("num_retrain_and_boiters: ", num_retrain_and_boiters)
 
     # num_retrain_and_boiters = len(outputs[problem]["subspace_diagnostics"][available_trials[0]][("pca_all_rt", pe_strategy)][metric])
 
@@ -436,7 +446,7 @@ def plot_subspace_diagnostics_single(
                 num_retrain = num_retrain_and_boiters-len(data[0]) 
         else:
             data_np = np.array(data)
-        
+        print(data_np.shape)
         mean = np.array(data_np).mean(axis=0)
         sem = np.std(data_np, axis=0, ddof=1) / np.sqrt(len(available_trials))
         
@@ -564,6 +574,8 @@ def plot_BO_results_single(
     BO_results = [res 
                     for i in outputs[problem]['exp_candidate_results'].keys() 
                     for res in outputs[problem]["exp_candidate_results"][i]]
+    
+    print(f"{len(outputs[problem]['exp_candidate_results'].keys())} valid trials: ",  outputs[problem]['exp_candidate_results'].keys())
 
     BO_results_df = pd.DataFrame(BO_results)
 
@@ -581,19 +593,19 @@ def plot_BO_results_single(
             if name[0] in methods:
 
                 if num_plot_datapoints is None:
-                    num_plot_datapoints = len(group["BO_iter"].values)
+                    num_plot_datapoints = len(group["mean"].values)
 
                 if shade: 
                     axs.plot(
                         # x_jittered[:num_plot_datapoints],
-                        group["BO_iter"].values,
+                        group["BO_iter"].values[:num_plot_datapoints],
                         group["mean"].values[:num_plot_datapoints],
                         label=labels_dict[name[0]],
                         color=colors_dict[name[0]],
                     )
                     axs.fill_between(
                         # x=x_jittered[:num_plot_datapoints],
-                        group["BO_iter"].values,
+                        group["BO_iter"].values[:num_plot_datapoints],
                         y1=group["mean"].values[:num_plot_datapoints] \
                             - group["sem"][:num_plot_datapoints]*kwargs.get("yerr_sems", 1.96),
                         y2=group["mean"].values[:num_plot_datapoints] \
