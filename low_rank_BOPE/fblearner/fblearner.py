@@ -85,23 +85,54 @@ def run_one_trial(
     
     exp.run_BOPE_loop()
 
-    # process pref_data_dict, subspace_diagnostics, BO_data_dict
-    # turn them into a nested dict rather than a dict with Tuple[str] as key
-    pref_data_dict_, subspace_diagnostics_, BO_data_dict_ = defaultdict(dict), defaultdict(dict), defaultdict(dict)
+    # process data
 
+    # key: "method__pestrategy", value: List[{"some metric": float, "candidate": Tensor}]
+    exp_candidate_results_ = {}
+    for k, v in exp.final_candidate_results.items():
+        if isinstance(v, defaultdict):
+            exp_candidate_results_[k] = dict(v)
+    exp_candidate_results__ = {}
+    for key, v in exp_candidate_results_.items():
+        print(key)
+        for v_key in v.keys():
+            exp_candidate_results__['__'.join([k, v_key])] = exp_candidate_results_[key][v_key]
+
+    # key: "method__pestrategy", value: List[{"some metric": float, "candidate": Tensor}]
+    PE_session_results_ = {}
+    for k, v in exp.final_candidate_results.items():
+        if isinstance(v, defaultdict):
+            PE_session_results_[k] = dict(v)
+    PE_session_results__ = {}
+    for key, v in PE_session_results_.items():
+        print(key)
+        for v_key in v.keys():
+            PE_session_results__['__'.join([k, v_key])] = PE_session_results_[key][v_key]
+
+    # key: "method__pestrategy", value: {"Y": Tensor, "util_vals": Tensor, "comps": Tensor}
+    pref_data_dict_ = {}
     for key in exp.pref_data_dict.keys():
-        pref_data_dict_[key[0]][key[1]] = exp.pref_data_dict[key]
+        pref_data_dict_['__'.join([key[0], key[1]])] = exp.pref_data_dict[key]
+
+    # key: "method__pestrategy", value: {"diagnostic": List[float]}
+    subspace_diagnostics_ = {}
     for key in exp.subspace_diagnostics.keys():
-        subspace_diagnostics_[key[0]][key[1]] = exp.subspace_diagnostics[key]
+        subspace_diagnostics_['__'.join([key[0], key[1]])] = exp.subspace_diagnostics[key]
+    subspace_diagnostics__ = {}
+    for k, v in subspace_diagnostics_.items():
+        if isinstance(v, defaultdict):
+            subspace_diagnostics__[k] = dict(v)
+
+    # key: "method__pestrategy", value: {"X": Tensor, "Y": Tensor}
+    BO_data_dict_ = {}
     for key in exp.BO_data_dict.keys():
-        BO_data_dict_[key[0]][key[1]] = exp.BO_data_dict[key]
+        BO_data_dict_['__'.join([key[0], key[1]])] = exp.BO_data_dict[key]
 
     # these are all defaultdict; if an error occurs, can try casting them to dict 
-    # using e.g., exp_candidate_results=dict(exp.final_candidate_results)
     return OneRun(
-        exp_candidate_results=exp.final_candidate_results,
-        PE_session_results=exp.PE_session_results,
+        exp_candidate_results=exp_candidate_results__,
+        PE_session_results=PE_session_results__,
         pref_data_dict=pref_data_dict_,
-        subspace_diagnostics=subspace_diagnostics_,
+        subspace_diagnostics=subspace_diagnostics__,
         BO_data_dict=BO_data_dict_,
     )
