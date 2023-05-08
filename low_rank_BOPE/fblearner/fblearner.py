@@ -87,32 +87,32 @@ def run_one_trial(
 
     # process data
 
-    # key: "method__pestrategy", value: List[{"some metric": float, "candidate": Tensor}]
+    # key: "method__pestrategy", value: List[{"some metric": float or List[float or List[float]]}]
     exp_candidate_results_ = {}
     for k, v in exp.final_candidate_results.items():
         if isinstance(v, defaultdict):
             exp_candidate_results_[k] = dict(v)
     exp_candidate_results__ = {}
     for key, v in exp_candidate_results_.items():
-        print(key)
         for v_key in v.keys():
             exp_candidate_results__['__'.join([k, v_key])] = exp_candidate_results_[key][v_key]
 
-    # key: "method__pestrategy", value: List[{"some metric": float, "candidate": Tensor}]
+    # key: "method__pestrategy", value: List[{"some metric": float or List[float or List[float]]}]
     PE_session_results_ = {}
     for k, v in exp.final_candidate_results.items():
         if isinstance(v, defaultdict):
             PE_session_results_[k] = dict(v)
     PE_session_results__ = {}
     for key, v in PE_session_results_.items():
-        print(key)
         for v_key in v.keys():
             PE_session_results__['__'.join([k, v_key])] = PE_session_results_[key][v_key]
 
-    # key: "method__pestrategy", value: {"Y": Tensor, "util_vals": Tensor, "comps": Tensor}
+    # key: "method__pestrategy", value: {"Y": List, "util_vals": List, "comps": List}
     pref_data_dict_ = {}
     for key in exp.pref_data_dict.keys():
         pref_data_dict_['__'.join([key[0], key[1]])] = exp.pref_data_dict[key]
+        for key_, val_ in pref_data_dict_['__'.join([key[0], key[1]])].items():
+            pref_data_dict_['__'.join([key[0], key[1]])][key_] = val_.tolist() # convert tensor to list
 
     # key: "method__pestrategy", value: {"diagnostic": List[float]}
     subspace_diagnostics_ = {}
@@ -123,10 +123,12 @@ def run_one_trial(
         if isinstance(v, defaultdict):
             subspace_diagnostics__[k] = dict(v)
 
-    # key: "method__pestrategy", value: {"X": Tensor, "Y": Tensor}
+    # key: "method__pestrategy", value: {"X": List, "Y": List}
     BO_data_dict_ = {}
     for key in exp.BO_data_dict.keys():
         BO_data_dict_['__'.join([key[0], key[1]])] = exp.BO_data_dict[key]
+        for key_, val_ in BO_data_dict_['__'.join([key[0], key[1]])].items():
+            BO_data_dict_['__'.join([key[0], key[1]])][key_] = val_.tolist() # convert tensor to list
 
     # these are all defaultdict; if an error occurs, can try casting them to dict 
     return OneRun(

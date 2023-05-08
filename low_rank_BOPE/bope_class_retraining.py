@@ -707,7 +707,7 @@ class RetrainingBopeExperiment:
             "run_id": self.trial_idx,
             "pe_strategy": pe_strategy,
             "method": method,
-            "candidate": post_mean_cand_X
+            "candidate": post_mean_cand_X.tolist()
         }
 
         # check util model fit here
@@ -766,7 +766,7 @@ class RetrainingBopeExperiment:
             else: 
                 best_so_far = max(best_so_far, rs_util.max().item())
             exp_result = {
-                "candidate": rs_X,
+                "candidate": rs_X.tolist(),
                 "candidate_util": rs_util.squeeze(-1).tolist(),
                 "best_util_so_far": best_so_far,
                 "BO_iter": BO_iter + cum_n_BO_iters_so_far + 1,
@@ -823,7 +823,7 @@ class RetrainingBopeExperiment:
             print(f"    ** best so far at BO iter {BO_iter}: ", best_so_far)
 
             exp_result = {
-                "candidate": new_cand_X,
+                "candidate": new_cand_X.tolist(),
                 "acqf_val": acqf_val.tolist(),
                 "candidate_posterior_mean_util": new_cand_X_posterior_mean_util.squeeze(-1).tolist(),
                 # "candidate_posterior_variance": new_cand_X_posterior.variance,
