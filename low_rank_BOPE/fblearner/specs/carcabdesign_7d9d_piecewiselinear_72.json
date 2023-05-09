@@ -4,7 +4,10 @@
         "st",
         "pca",
         "pca_rt",
-        "random_search"
+        "random_search",
+        "wpca_1",
+        "wpca_1e-3",
+        "wpca_1e-6"
     ],
     "trial_idx_start": 1,
     "trial_idx_end": 50

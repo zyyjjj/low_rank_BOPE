@@ -9,7 +9,7 @@ import gpytorch
 import numpy as np
 import torch
 from make_problem import make_problem_and_util_func
-from problem_setups import PROBLEM_SETUPS, EXPERIMENT_SETUPS
+from problem_setups import PROBLEM_SETUPS, EXPERIMENT_SETUPS, METHOD_SETUPS
 
 from low_rank_BOPE.bope_class_retraining import RetrainingBopeExperiment
 
@@ -54,12 +54,16 @@ def main(
     
     for baseline in baselines:
         for trial_idx in range(trial_idx_start, trial_idx_end+1):
+            options = copy.deepcopy(EXPERIMENT_SETUPS[problem_name])
+            if baseline in METHOD_SETUPS:
+                method_options = METHOD_SETUPS[baseline]
+                options.update(method_options)
             run_one_trial(
                 problem=problem, 
                 util_func=util_func, 
                 methods=[baseline], 
                 trial_idx=trial_idx,
-                experiment_options=EXPERIMENT_SETUPS[problem_name]
+                experiment_options=options
             )
     
 
