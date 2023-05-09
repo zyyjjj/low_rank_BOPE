@@ -123,7 +123,7 @@ class RetrainingBopeExperiment:
         methods: List[str],
         pe_strategies: List[str],
         trial_idx: int,
-        output_path: Optional[str],
+        output_path: Optional[str] = None,
         **kwargs
     ) -> None:
         r"""
@@ -153,7 +153,7 @@ class RetrainingBopeExperiment:
         self.input_dim = problem.bounds.shape[-1]
         self.trial_idx = trial_idx
         self.output_path = output_path
-        if not os.path.exists(self.output_path):
+        if (self.output_path is not None) and (not os.path.exists(self.output_path)):
             os.makedirs(self.output_path)
         if hasattr(self.problem, "true_axes"):
             self.true_axes = self.problem.true_axes
