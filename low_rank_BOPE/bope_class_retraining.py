@@ -783,7 +783,7 @@ class RetrainingBopeExperiment:
             util_model_acc = check_util_model_fit(
                 util_model, self.problem, self.util_func, n_test=1024, batch_eval=True)
 
-            sampler = SobolQMCNormalSampler(1)
+            sampler = SobolQMCNormalSampler(4)
             pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
 
             baseline_X = self.BO_data_dict[(method, pe_strategy)]["X"]
