@@ -661,12 +661,13 @@ class AugmentedProblem(MultiObjectiveTestProblem):
         problem_seed = None
     ):
 
-        self._bounds = problem.bounds
+        self._bounds = problem._bounds
         self._ref_point = problem._ref_point
+        self.dim = problem.dim
 
         super().__init__()
         self.base_problem = problem
-        self.dim = problem.dim
+        
         self.base_outcome_dim = problem.num_objectives
         self.noise = noise
         self.bounds = problem.bounds
