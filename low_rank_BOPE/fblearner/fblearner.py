@@ -33,9 +33,8 @@ List of problem names:
     "robot_3_100_1",
     "robot_3_500_5",
     "inventory_100",
-    "PTS=6_input=1_outcome=45_latent=3_PCls=0.5_pwlinear_seed=1234_alpha=0.0",
-    "PTS=6_input=1_outcome=45_latent=3_PCls=0.5_pwlinear_seed=1234_alpha=0.5",
-    "PTS=6_input=1_outcome=45_latent=3_PCls=0.5_pwlinear_seed=1234_alpha=1.0",
+    "PTS=6_input=3_outcome=45_latent=3_PCls=0.5_pwlinear_seed=1234_alpha=0.5",
+    "PTS=6_input=3_outcome=45_latent=3_PCls=0.5_pwlinear_seed=1234_alpha=1.0",
 ]
 
 """

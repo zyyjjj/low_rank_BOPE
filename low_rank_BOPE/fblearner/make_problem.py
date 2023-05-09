@@ -91,7 +91,7 @@ def make_problem_and_util_func(
         scaling = torch.sqrt(S[:options["latent_dim"]])
 
         problem = make_problem(
-            input_dim = input_dim,
+            input_dim = options["input_dim"],
             outcome_dim = outcome_dim,
             noise_std = options["noise_std"],
             true_axes = true_axes,
