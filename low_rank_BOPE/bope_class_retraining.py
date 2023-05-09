@@ -1038,7 +1038,7 @@ class RetrainingBopeExperiment:
 
                     print(f"========== Finished running PE-BO meta-iter {meta_iter} for [{method}] ==========\n")
 
-                    if self.save_results:
+                    if (self.output_path is not None) and self.save_results:
                         torch.save(dict(self.PE_session_results), self.output_path +
                                 'PE_session_results_trial=' + str(self.trial_idx) + f'_{method}.th')
                         torch.save(dict(self.final_candidate_results), self.output_path +
@@ -1062,7 +1062,7 @@ class RetrainingBopeExperiment:
                 print('Error occurred: ', e)
                 print(f"============= {method} failed, skipping =============")
 
-                if self.save_results:
+                if (self.output_path is not None) and self.save_results:
                     torch.save(dict(self.PE_session_results), self.output_path +
                             'PE_session_results_trial=' + str(self.trial_idx) + f'_{method}.th')
                     torch.save(dict(self.final_candidate_results), self.output_path +
