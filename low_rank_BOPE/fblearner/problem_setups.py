@@ -52,22 +52,24 @@ PROBLEM_SETUPS = {
             'c' : 0.1 # doesn't matter for us
         }
     },
-    "PTS=6_input=1_outcome=45_latent=3_alpha=0.5_pwlinear": {
+    "PTS=6_input=5_outcome=45_latent=3_alpha=0.5_pwlinear": {
         "matrix_id": 6,
         "input_dim": 1,
         "outcome_dim": 45,
         "latent_dim": 3,
         "alpha": 0.5,
+        "noise_std": 0.01,
         "util_type": "piecewiselinear",
         "PC_lengthscales": [0,1, 0.1, 0.1],
         "problem_seed": 1234
     },
-    "PTS=6_input=1_outcome=45_latent=3_alpha=1.0_pwlinear": {
+    "PTS=6_input=5_outcome=45_latent=3_alpha=1.0_pwlinear": {
         "matrix_id": 6,
         "input_dim": 1,
         "outcome_dim": 45,
         "latent_dim": 3,
         "alpha": 1.0,
+        "noise_std": 0.01,
         "util_type": "piecewiselinear",
         "util_coeff_multiplier": 5.0,
         "PC_lengthscales": [0,1, 0.1, 0.1],
@@ -150,7 +152,17 @@ EXPERIMENT_SETUPS = {
         "BO_batch_size": 16,
         "n_meta_iters": 5,
     },
-    "PTS=6_input=1_outcome=45_latent=3_alpha=1.0_pwlinear": {
+    "PTS=6_input=5_outcome=45_latent=3_alpha=0.5_pwlinear": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 4,
+        "initial_experimentation_batch": 32,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 8,
+        "n_meta_iters": 10,
+    },
+    "PTS=6_input=5_outcome=45_latent=3_alpha=1.0_pwlinear": {
         "pe_strategies": ["EUBO-zeta"],
         "every_n_comps": 2,
         "n_check_post_mean": 4,
