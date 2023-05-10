@@ -1,0 +1,32 @@
+load("@fbcode_macros//build_defs:python_library.bzl", "python_library")
+load("//fblearner/flow/projects:macros.bzl", "fblearner_flow_project_python_binary")
+
+oncall("ae")
+
+fblearner_flow_project_python_binary(
+    name = "workflow",
+    deps = [
+        ":workflow-lib",
+    ],
+)
+
+python_library(
+    name = "workflow-lib",
+    srcs = [
+        "bope_flow.py",
+        "car_problems.py",
+        "cardesign_benchmark.py",
+        "cardesign_spec.json",
+        "pairwise_autoencoder_gp.py",
+        "transforms.py",
+        "utils.py",
+    ],
+    deps = [
+        "fbsource//third-party/pypi/numpy:numpy",
+        "//ax/utils/common:common_no_pytorch",
+        "//caffe2:torch",
+        "//fblearner/flow:api",
+        "//pytorch/botorch:botorch",
+        "//pytorch/gpytorch:gpytorch",
+    ],
+)
