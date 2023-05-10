@@ -52,9 +52,9 @@ PROBLEM_SETUPS = {
             'c' : 0.1 # doesn't matter for us
         }
     },
-    "PTS=6_input=5_outcome=45_latent=3_alpha=0.5_pwlinear": {
+    "PTS=6_input=3_outcome=45_latent=3_alpha=0.5_pwlinear": {
         "matrix_id": 6,
-        "input_dim": 1,
+        "input_dim": 3,
         "outcome_dim": 45,
         "latent_dim": 3,
         "alpha": 0.5,
@@ -63,9 +63,9 @@ PROBLEM_SETUPS = {
         "PC_lengthscales": [0,1, 0.1, 0.1],
         "problem_seed": 1234
     },
-    "PTS=6_input=5_outcome=45_latent=3_alpha=1.0_pwlinear": {
+    "PTS=6_input=3_outcome=45_latent=3_alpha=1.0_pwlinear": {
         "matrix_id": 6,
-        "input_dim": 1,
+        "input_dim": 3,
         "outcome_dim": 45,
         "latent_dim": 3,
         "alpha": 1.0,
@@ -152,7 +152,7 @@ EXPERIMENT_SETUPS = {
         "BO_batch_size": 16,
         "n_meta_iters": 5,
     },
-    "PTS=6_input=5_outcome=45_latent=3_alpha=0.5_pwlinear": {
+    "PTS=6_input=3_outcome=45_latent=3_alpha=0.5_pwlinear": {
         "pe_strategies": ["EUBO-zeta"],
         "every_n_comps": 2,
         "n_check_post_mean": 4,
@@ -162,7 +162,7 @@ EXPERIMENT_SETUPS = {
         "BO_batch_size": 8,
         "n_meta_iters": 10,
     },
-    "PTS=6_input=5_outcome=45_latent=3_alpha=1.0_pwlinear": {
+    "PTS=6_input=3_outcome=45_latent=3_alpha=1.0_pwlinear": {
         "pe_strategies": ["EUBO-zeta"],
         "every_n_comps": 2,
         "n_check_post_mean": 4,
