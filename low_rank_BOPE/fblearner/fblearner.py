@@ -19,6 +19,7 @@ class OneRun(NamedTuple):
     pref_data_dict: Dict[str, Dict[str, Any]]
     subspace_diagnostics: Dict[str, Dict[str, Any]]
     BO_data_dict: Dict[str, Dict[str, Any]]
+    time_consumption: Dict[str, Dict[str, Any]]
 
 
 """
@@ -144,10 +145,22 @@ def run_one_trial(
         for key_, val_ in BO_data_dict_['__'.join([key[0], key[1]])].items():
             BO_data_dict_['__'.join([key[0], key[1]])][key_] = val_.tolist()
 
+    # key: "method__pestrategy", value: {"time for doing something": List[float]}
+    # turn dict key from tuple (m, p) to str "m__p" 
+    time_consumption_ = {}
+    for key in exp.time_consumption.keys():
+        time_consumption_['__'.join([key[0], key[1]])] = exp.time_consumption[key]
+    # cast items from defaultdict to dict
+    time_consumption__ = {}
+    for k_, v_ in time_consumption_.items():
+        if isinstance(v_, defaultdict):
+            time_consumption__[k_] = dict(v_)
+
     return OneRun(
         exp_candidate_results=exp_candidate_results__,
         PE_session_results=PE_session_results__,
         pref_data_dict=pref_data_dict_,
         subspace_diagnostics=subspace_diagnostics__,
         BO_data_dict=BO_data_dict_,
+        time_consumption=time_consumption__,
     )
