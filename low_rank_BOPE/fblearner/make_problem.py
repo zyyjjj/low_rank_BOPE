@@ -47,9 +47,9 @@ def make_problem_and_util_func(
         _, input_dim, max_timesteps, record_pos_every_n = problem_name.split("_")
 
         problem = SpotMiniMiniProblem(
-            dim = input_dim,
-            max_timesteps = max_timesteps,
-            record_pos_every_n=record_pos_every_n,
+            dim = int(input_dim),
+            max_timesteps = int(max_timesteps),
+            record_pos_every_n=int(record_pos_every_n),
         )
 
         util_func = RobotUtil(
