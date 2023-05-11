@@ -177,12 +177,12 @@ class SpotMiniMiniProblem(BaseTestProblem):
         self.dim=dim
         if dim > 5: 
             raise ValueError("dim should be <= 5!")
-        self._bounds = torch.tensor([[0., 1.]*dim])
+        self._bounds = [(0., 1.) for _ in range(dim)]
         super().__init__(noise_std=noise_std, negate=negate)
 
         self.max_timesteps = max_timesteps
         self.record_pos_every_n = record_pos_every_n
-        self.outcome_dim = max_timesteps // record_pos_every_n
+        self.outcome_dim = max_timesteps // record_pos_every_n * 3
 
     def evaluate_true(self, X: Tensor) -> Tensor:
         r"""
@@ -192,12 +192,12 @@ class SpotMiniMiniProblem(BaseTestProblem):
         Returns:
             trajectories: `num_samples x self.outcome_dim` tensor
         """
+        print("Evaluating ...")
         trajectories = []
         save_stdout = sys.stdout
         sys.stdout = io.StringIO()  # suppress print out
 
         X_ = self._unstandardize_X(X, bounds = self.original_bounds[:, :self.dim].clone().detach())
-        print(X, X_)
 
         for i, X_i in enumerate(X_):
             kwargs = {self.param_names[j]: p for j, p in enumerate(X_i)}
@@ -248,11 +248,13 @@ class RobotUtil(torch.nn.Module):
         self,
         y_drift_penalty: float = 0.0,
         y_var_penalty: float = 0.0,
+        final_z_reward: float = 0.0,
         z_var_penalty: float = 0.0,
     ):
         super().__init__()
         self.y_drift_penalty = y_drift_penalty
         self.y_var_penalty = y_var_penalty
+        self.final_z_reward = final_z_reward
         self.z_var_penalty = z_var_penalty
 
     def forward(self, Y: Tensor):
@@ -272,6 +274,8 @@ class RobotUtil(torch.nn.Module):
         r"""
         Args:
             y: `outcome_dim` tensor of outcomes
+        Returns:
+            util: utility of the outcome
         """
 
         y = y.detach().numpy()
@@ -282,8 +286,9 @@ class RobotUtil(torch.nn.Module):
         z_vec = y[2*len(y)//3:]
 
         util = (x_vec[-1] - x_vec[0]) + \
-            self.y_drift_penalty * (y_vec[-1] - y_vec[0]) + \
+            self.y_drift_penalty * np.abs(y_vec[-1] - y_vec[0]) + \
             self.y_var_penalty * np.std(y_vec) + \
+            self.final_z_reward * z_vec[-1] + \
             self.z_var_penalty * np.std(z_vec)
 
         return util

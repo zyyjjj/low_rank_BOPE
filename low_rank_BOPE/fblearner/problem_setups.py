@@ -175,15 +175,15 @@ EXPERIMENT_SETUPS = {
 }
 
 METHOD_SETUPS = {
-    "wpca_1": {
+    "wpca_est_1_rt": {
         "wpca_type": "rank_cts",
         "wpca_options": {"k": 1}
     },
-    "wpca_1e-3": {
+    "wpca_est_1e-3_rt": {
         "wpca_type": "rank_cts",
         "wpca_options": {"k": 0.001}
     },
-    "wpca_1e-6": {
+    "wpca_est_1e-6_rt": {
         "wpca_type": "rank_cts",
         "wpca_options": {"k": 0.000001}
     },

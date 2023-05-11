@@ -5,9 +5,9 @@
         "pca",
         "pca_rt",
         "random_search",
-        "wpca_1",
-        "wpca_1e-3",
-        "wpca_1e-6"
+        "wpca_est_1_rt",
+        "wpca_est_1e-3_rt",
+        "wpca_est_1e-6_rt"
     ],
     "trial_idx_start": 1,
     "trial_idx_end": 50
