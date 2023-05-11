@@ -151,6 +151,7 @@ EXPERIMENT_SETUPS = {
         "n_BO_iters": 1,
         "BO_batch_size": 16,
         "n_meta_iters": 5,
+        "standardize": False
     },
     "PTS=6_input=3_outcome=45_latent=3_alpha=0.5_pwlinear": {
         "pe_strategies": ["EUBO-zeta"],
