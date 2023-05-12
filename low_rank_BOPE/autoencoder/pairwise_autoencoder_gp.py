@@ -16,14 +16,16 @@ from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.likelihoods.pairwise import PairwiseLikelihood
 from botorch.models.transforms.input import (
     ChainedInputTransform,
+    ChainedOutcomeTransform,
     InputTransform,
     OutcomeTransform,
     Normalize,
+    Standardize
 )
 from botorch.models.transforms.outcome import Standardize
 from botorch.utils.sampling import draw_sobol_samples
 from fblearner.flow.projects.ae.benchmarks.high_dim_bope.transforms import (
-    LinearProjectionInputTransform,
+    LinearProjectionInputTransform, LinearProjectionOutcomeTransform,
 )
 from fblearner.flow.projects.ae.benchmarks.high_dim_bope.utils import (
     fit_pca,
@@ -106,7 +108,146 @@ def train_autoencoder(
 
 ##############################################################################################################
 ##############################################################################################################
-# Utility model class
+# Outcome model class and fitting outcome models
+
+# TODO: check correctness
+class HighDimGP(SingleTaskGP):
+    """SingleTask GP for high-dim outcomes. 
+    A thin wrapper over SingleTaskGP to take a trained auto-encoder to map 
+    high-dim outcomes to a low-dim outcome spaces and fit independent GPs 
+    on low-dimensional outcome representations.
+    """
+
+    def __init__(
+        self,
+        train_X: Tensor,
+        train_Y: Tensor,
+        autoencoder: Optional[nn.Module] = None,
+        likelihood: Optional[Likelihood] = None,
+        covar_module: Optional[Module] = None,
+        outcome_transform: Optional[OutcomeTransform] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            train_X=train_X,
+            train_Y=train_Y,
+            likelihood=likelihood,
+            covar_module=covar_module,
+            outcome_transform=outcome_transform,
+        )
+        # avoid de-dup so hard-coded this to be 0
+        self._consolidate_rtol = 0.0
+        self._consolidate_atol = 0.0
+
+        # a place-holder in the training stage
+        # will load the trained autoencoder for eval
+        self.autoencoder = None
+        if autoencoder is not None:
+            self.set_autoencoder(autoencoder)
+
+    def set_autoencoder(self, autoencoder: nn.Module):
+        # assert autoencoder.latent_dims == self.covar_module.base_kernel.ard_num_dims
+        # TODO: check latent dim matches what? 
+        # assert autoencoder.latent_dims == 
+        self.autoencoder = deepcopy(autoencoder)
+        self.autoencoder.eval()
+
+    def forward(self, x: Tensor) -> MultivariateNormal:
+        if self.training:
+            # assert datapoints's shape as n x latent_dims
+            return super().forward(x)
+        else:
+            # in eval stage, encode data points to low-dim embedding Z
+            # assert x's shape as n x output_dims
+            Y_lowdim = super().forward(x)
+            return self.autoencoder.decoder(Y_lowdim)
+
+
+def initialize_outcome_model(
+    train_X: Tensor,
+    train_Y: Tensor,
+    # latent_dims: int
+) -> Tuple[HighDimGP, Likelihood]:
+    outcome_model = HighDimGP(
+        train_X=train_X,
+        train_Y=train_Y,
+        autoencoder=None,
+        outcome_transform=Standardize(train_Y.shape[-1]),
+    )
+    mll = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
+    return outcome_model, mll
+
+
+def get_fitted_autoencoded_outcome_model(
+    train_X: Tensor,
+    train_Y: Tensor,
+    num_epochs: int,
+    autoencoder: Autoencoder,
+    # TODO: confirm whether we need more args
+) -> HighDimGP:
+    train_Y_latent = autoencoder.encoder(train_Y).detach()
+    outcome_model, mll = initialize_outcome_model(
+        train_X=train_X,
+        train_Y=train_Y_latent,
+    )
+
+    return opt_outcome_model_under_ae(
+        outcome_model=outcome_model,
+        mll=mll,
+        autoencoder=autoencoder,
+        train_X=train_X,
+        train_Y=train_Y,
+        num_epochs=num_epochs,
+    )
+
+
+def get_fitted_pca_outcome_model(
+    train_X: Tensor,
+    train_Y: Tensor,
+    pca_var_threshold: float,
+) -> SingleTaskGP:
+    projection = fit_pca(
+        train_Y = train_Y,
+        var_threshold = pca_var_threshold,
+        weights = None,
+        standardize=True # TODO: revisit, might cause issues for some problems
+    )
+    outcome_tf = ChainedOutcomeTransform(
+        **{
+            "projection": LinearProjectionOutcomeTransform(projection=projection),
+            "standardize": Standardize(projection.shape[0])
+        }
+    )
+    logger.info(f"pca projection matrix shape: {projection.shape}")
+    outcome_model = SingleTaskGP(
+        train_X=train_X,
+        train_Y=train_Y,
+        outcome_transform=outcome_tf,
+    )
+    mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
+    fit_gpytorch_mll(mll_outcome)
+
+    return outcome_model
+
+
+def get_fitted_standard_outcome_model(train_X: Tensor, train_Y: Tensor) -> SingleTaskGP:
+    """Fit a single-task outcome model."""
+    outcome_dim = train_Y.shape[-1]
+    outcome_model = SingleTaskGP(
+        train_X=train_X,
+        train_Y=train_Y,
+        input_transform=Normalize(train_X.shape[-1]),
+        outcome_transform=Standardize(outcome_dim),
+    )
+    mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
+    fit_gpytorch_mll(mll_outcome)
+    
+    return outcome_model
+
+
+##############################################################################################################
+##############################################################################################################
+# Utility model class and fitting util models
 
 class HighDimPairwiseGP(PairwiseGP):
     """Pairwise GP for high-dim outcomes. A thin wrapper over PairwiseGP to take a trained
@@ -169,80 +310,6 @@ def initialize_util_model(
     mll_util = PairwiseLaplaceMarginalLogLikelihood(util_model.likelihood, util_model)
     return util_model, mll_util
 
-
-##############################################################################################################
-################################################################################################### 
-# jointly optimize util model and fine-tune AE
-
-def jointly_opt_ae_util_model(
-    util_model: HighDimPairwiseGP,
-    mll_util: PairwiseLaplaceMarginalLogLikelihood,
-    autoencoder: Autoencoder,
-    train_outcomes: Tensor,
-    train_comps: Tensor,
-    num_epochs: int,
-) -> Tuple[HighDimPairwiseGP, Autoencoder]:
-    """Jointly optimize util model and fine-tune AE"""
-    autoencoder.train()
-    util_model.train()
-
-    optimizer = torch.optim.Adam(
-        [{"params": autoencoder.parameters()}, {"params": util_model.parameters()}]
-    )
-
-    for epoch in range(num_epochs):
-        outcomes_hat = autoencoder(train_outcomes)
-        z = autoencoder.encoder(train_outcomes).detach()
-        # TODO: weight by the uncertainty
-        vae_loss = ((train_outcomes - outcomes_hat) ** 2).sum() / train_outcomes.shape[
-            -1
-        ]  # L2 loss functions
-        if epoch % 100 == 0:
-            logger.info(
-                f"Pref model joint training epoch {epoch}: autoencode loss func = {vae_loss}"
-            )
-
-        # update the util training data (datapoints) with the new latent-embed of outcomes
-        util_model.set_train_data(
-            comparisons=train_comps, datapoints=z, update_model=True
-        )
-        pred = util_model(z)
-        util_loss = -mll_util(pred, train_comps)
-        if epoch % 100 == 0:
-            logger.info(
-                f"Pref model joint training epoch {epoch}: util model loss func = {util_loss}"
-            )
-        # add losses and back prop
-        loss = vae_loss + util_loss
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-    autoencoder.eval()
-    util_model.eval()
-    # update the trainied autoencode and attach to the util model
-    util_model.set_autoencoder(autoencoder=autoencoder)
-    return util_model, autoencoder
-
-
-def _get_unlabeled_outcomes(
-    outcome_model: GPyTorchModel, bounds: Tensor, nsample: int
-) -> Tensor:
-    # let's add fake data
-    X = (
-        draw_sobol_samples(
-            bounds=bounds,
-            n=1,
-            q=2 * nsample,  # fake outcomes be nsample * K outcomes
-        )
-        .squeeze(0)
-        .to(torch.double)
-        .detach()
-    )
-    # sampled from outcomes
-    unlabeled_outcomes = outcome_model.posterior(X).rsample().squeeze(0).detach()
-    return unlabeled_outcomes
 
 
 def get_fitted_autoencoded_util_model(
@@ -312,7 +379,7 @@ def get_fitted_pca_util_model(
         train_comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
         model_kwargs: input transform and covar_module
         outcome_model: if not None, we will sample 100 fakes outcomes from it for PCA fitting
-            otherwiese, we use train_Y (labeled preference training data) to fit PCA
+            otherwise, we use train_Y (labeled preference training data) to fit PCA
     """
 
     if (
@@ -378,137 +445,176 @@ def get_fitted_standard_util_model(
 
 ##############################################################################################################
 ##############################################################################################################
-# Outcome model class
+# jointly optimize util model and fine-tune AE
 
-class HighDimGP(SingleTaskGP):
-    """SingleTask GP for high-dim outcomes. 
-    A thin wrapper over SingleTaskGP to take a trained auto-encoder to map 
-    high-dim outcomes to a low-dim outcome spaces and fit independent GPs 
-    on low-dimensional outcome representations.
-    """
-
-    def __init__(
-        self,
-        train_X: Tensor,
-        train_Y: Tensor,
-        autoencoder: Optional[nn.Module] = None,
-        likelihood: Optional[Likelihood] = None,
-        covar_module: Optional[Module] = None,
-        outcome_transform: Optional[OutcomeTransform] = None,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            train_X=train_X,
-            train_Y=train_Y,
-            likelihood=likelihood,
-            covar_module=covar_module,
-            outcome_transform=outcome_transform,
-        )
-        # avoid de-dup so hard-coded this to be 0
-        self._consolidate_rtol = 0.0
-        self._consolidate_atol = 0.0
-
-        # a place-holder in the training stage
-        # will load the trained autoencoder for eval
-        self.autoencoder = None
-        if autoencoder is not None:
-            self.set_autoencoder(autoencoder)
-
-    def set_autoencoder(self, autoencoder: nn.Module):
-        # assert autoencoder.latent_dims == self.covar_module.base_kernel.ard_num_dims
-        # TODO: check latent dim matches what? 
-        # assert autoencoder.latent_dims == 
-        self.autoencoder = deepcopy(autoencoder)
-        self.autoencoder.eval()
-
-    def forward(self, x: Tensor) -> MultivariateNormal:
-        if self.training:
-            # assert datapoints's shape as n x latent_dims
-            return super().forward(x)
-        else:
-            # in eval stage, encode data points to low-dim embedding Z
-            # assert x's shape as n x output_dims
-            Y_lowdim = super().forward(x)
-            return self.autoencoder.decoder(Y_lowdim)
-
-
-def initialize_outcome_model(
-    train_X: Tensor,
-    train_Y: Tensor,
-    latent_dims: int
-) -> Tuple[HighDimGP, Likelihood]:
-    outcome_model = HighDimGP(
-        train_X=train_X,
-        train_Y=train_Y,
-        autoencoder=None,
-        outcome_transform=Standardize(train_Y.shape[-1]),
-    )
-    mll = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
-    return outcome_model, mll
-
-# fit outcome model but keep the autoencoder fixed
-# TODO: check correctness
-def fit_outcome_model_under_ae(
-    outcome_model: HighDimGP,
-    mll: ExactMarginalLogLikelihood,
+def jointly_opt_ae_util_model(
+    util_model: HighDimPairwiseGP,
+    mll_util: PairwiseLaplaceMarginalLogLikelihood,
     autoencoder: Autoencoder,
-    train_X: Tensor,
-    train_Y: Tensor,
-    num_epochs: int
-):
-    """Jointly optimize the outcome model and fine-tune AE"""
-    # autoencoder.train() # TODO: eval() here?
-    outcome_model.train()
+    train_outcomes: Tensor,
+    train_comps: Tensor,
+    num_epochs: int,
+) -> Tuple[HighDimPairwiseGP, Autoencoder]:
+    """Jointly optimize util model and fine-tune AE"""
+    autoencoder.train()
+    util_model.train()
+
     optimizer = torch.optim.Adam(
-        [
-            # {"params": autoencoder.parameters()}, 
-            {"params": outcome_model.parameters()}]
+        [{"params": autoencoder.parameters()}, {"params": util_model.parameters()}]
     )
 
     for epoch in range(num_epochs):
-        train_Y_latent = autoencoder.encoder(train_Y)
-        
-        # update the outcome model training data with the new latent-embed of outcomes
-        outcome_model.set_train_data(
-            train_X=train_X, train_Y=train_Y_latent, update_model=True
+        outcomes_hat = autoencoder(train_outcomes)
+        z = autoencoder.encoder(train_outcomes).detach()
+        # TODO: weight by the uncertainty
+        vae_loss = ((train_outcomes - outcomes_hat) ** 2).sum() / train_outcomes.shape[
+            -1
+        ]  # L2 loss functions
+        if epoch % 100 == 0:
+            logger.info(
+                f"Pref model joint training epoch {epoch}: autoencode loss func = {vae_loss}"
+            )
+
+        # update the util training data (datapoints) with the new latent-embed of outcomes
+        util_model.set_train_data(
+            comparisons=train_comps, datapoints=z, update_model=True
         )
-        pred_latent = outcome_model(train_X)
-        pred_recons = autoencoder.decoder(pred_latent)
-        outcome_loss = -mll(pred_recons, train_Y)
+        pred = util_model(z)
+        util_loss = -mll_util(pred, train_comps)
         if epoch % 100 == 0:
             logger.info(
                 f"Pref model joint training epoch {epoch}: util model loss func = {util_loss}"
             )
-        
-        # loss is just outcome loss
-        loss = outcome_loss
+        # add losses and back prop
+        loss = vae_loss + util_loss
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-    # autoencoder.eval()
-    outcome_model.eval()
-    # update the trainied autoencode and attach to the util model
-    outcome_model.set_autoencoder(autoencoder=autoencoder)
-    return outcome_model
+    autoencoder.eval()
+    util_model.eval()
+    # update the trained autoencoder and attach to the util model
+    util_model.set_autoencoder(autoencoder=autoencoder)
+    return util_model, autoencoder
 
 
-def get_fitted_autoencoded_outcome_model():
-    pass
+# TODO: check correctness
+def jointly_optimize_models(
+    train_X: Tensor,
+    train_Y: Tensor,
+    train_comps: Tensor,
+    num_epochs: int,
+    outcome_model: Optional[HighDimGP]=None,
+    mll_outcome: Optional[ExactMarginalLogLikelihood]=None,
+    util_model: Optional[HighDimPairwiseGP]=None,
+    mll_util: Optional[PairwiseLaplaceMarginalLogLikelihood]=None,
+    autoencoder: Optional[Autoencoder]=None,
+    train_ae: bool = True,
+    train_outcome_model: bool = True,
+    train_util_model: bool = True
+):
+    
+    optimizer_params = []
 
-def get_fitted_pca_outcome_model():
-    pass
+    if train_ae:
+        assert autoencoder is not None, "Must provide an autoencoder to train"
+        autoencoder.train()
+        optimizer_params.append({"params": autoencoder.parameters()})
+    if train_outcome_model:
+        assert None not in {outcome_model, mll_outcome} , "Must provide an outcome model and mll to train"
+        outcome_model.train()
+        optimizer_params.append({"params": outcome_model.parameters()})
+    if train_util_model:
+        assert None not in {util_model, mll_util} , "Must provide a util model and mll to train"
+        util_model.train()
+        optimizer_params.append({"params": util_model.parameters()})
+    
+    optimizer = torch.optim.Adam(optimizer_params)
 
-def get_fitted_standard_outcome_model(train_X: Tensor, train_Y: Tensor) -> SingleTaskGP:
-    """Fit a single-task outcome model."""
-    outcome_dim = train_Y.shape[-1]
-    outcome_model = SingleTaskGP(
-        train_X=train_X,
-        train_Y=train_Y,
-        input_transform=Normalize(train_X.shape[-1]),
-        outcome_transform=Standardize(outcome_dim),
+    for epoch in range(num_epochs):
+        train_Y_latent = autoencoder.encoder(train_Y).detach() 
+        train_Y_recons = autoencoder.decoder(train_Y_latent)
+
+        loss = 0 # TODO: is this the right way to initialize?
+
+        if train_ae:
+            ae_loss = ((train_Y - train_Y_recons) ** 2).sum() / train_Y.shape[-1]
+            loss += ae_loss
+
+            if epoch % 100 == 0:
+                logger.info(
+                    f"Joint training epoch {epoch}: autoencoder loss func = {ae_loss}"
+                )
+
+        if train_outcome_model:    
+            # TODO: this is wrong; there is no set_train_data() method for SingleTaskGP
+            outcome_model.set_train_data(
+                inputs=train_X, targets=train_Y_latent, strict=False 
+            )
+            outcome_loss = -mll_outcome(outcome_model(train_X), train_Y_latent)
+            # TODO: don't think it's -mll_outcome(autoencoder.decoder(outcome_model(train_X)), train_Y), 
+            # but should double check
+            loss += outcome_loss
+
+            if epoch % 100 == 0:
+                logger.info(
+                    f"Joint training epoch {epoch}: outcome model loss func = {outcome_loss}"
+                )
+
+        if train_util_model:
+            util_model.set_train_data(
+                comparisons=train_comps, datapoints=train_Y_latent, update_model=True
+            )
+            util_pred = util_model(train_Y_latent)
+            util_loss = -mll_util(util_pred, train_comps)
+            loss += util_loss
+
+            if epoch % 100 == 0:
+                logger.info(
+                    f"Joint training epoch {epoch}: util model loss func = {util_loss}"
+                )
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+    if train_ae:
+        autoencoder.eval()
+        if outcome_model is not None:
+            outcome_model.set_autoencoder(autoencoder=autoencoder)
+        if util_model is not None:
+            util_model.set_autoencoder(autoencoder=autoencoder)
+    if train_outcome_model:
+        outcome_model.eval()
+    if train_util_model:
+        util_model.eval()
+    
+    return (outcome_model if train_outcome_model else None,
+        util_model if train_util_model else None,
+        autoencoder if train_ae else None)
+
+
+
+##############################################################################################################
+##############################################################################################################
+# Other helper funcs
+
+def _get_unlabeled_outcomes(
+    outcome_model: GPyTorchModel, bounds: Tensor, nsample: int
+) -> Tensor:
+    # let's add fake data
+    X = (
+        draw_sobol_samples(
+            bounds=bounds,
+            n=1,
+            q=2 * nsample,  # fake outcomes be nsample * K outcomes
+        )
+        .squeeze(0)
+        .to(torch.double)
+        .detach()
     )
-    mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
-    fit_gpytorch_mll(mll_outcome)
-    return outcome_model
+    # sampled from outcomes
+    unlabeled_outcomes = outcome_model.posterior(X).rsample().squeeze(0).detach()
+    return unlabeled_outcomes
+
