@@ -1086,14 +1086,15 @@ class RetrainingBopeExperiment:
 
         # fit the models
         for method in self.methods:
-            for pe_strategy in self.pe_strategies:
-                self.fit_util_model(
-                    method, pe_strategy, 
-                    save_model=True, save_model_fit_time=False
-                )
-                self.fit_outcome_model(
-                    method, pe_strategy, 
-                    save_model_fit_time=False, save_diagnostics=False
-                )
+            if self.progress[method]["stage"] != "initial":
+                for pe_strategy in self.pe_strategies:
+                    self.fit_util_model(
+                        method, pe_strategy, 
+                        save_model=True, save_model_fit_time=False
+                    )
+                    self.fit_outcome_model(
+                        method, pe_strategy, 
+                        save_model_fit_time=False, save_diagnostics=False
+                    )
             
         logger.info("Refit outcome and utility models from loaded results.")
