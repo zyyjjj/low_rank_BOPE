@@ -1047,19 +1047,24 @@ class RetrainingBopeExperiment:
                 },
             }
 
+            file_dir = self.output_path + f"{self.methods}/"
+
+            if not os.path.exists(file_dir):
+                os.makedirs(file_dir)
+
             torch.save(
                 results_dict,
-                self.output_path + f'results_trial={self.trial_idx}.th'
+                file_dir + f'results_trial={self.trial_idx}.th'
             )
 
             logger.info(
                 f"At progress {self.progress}, " 
-                f"saved results to {self.output_path}results_trial={self.trial_idx}.th")
+                f"saved results to {file_dir}results_trial={self.trial_idx}.th")
 
 
     def load_experiment_data(self):
         # read from file path
-        file_path = self.output_path + f'results_trial={self.trial_idx}.th'
+        file_path = self.output_path + f"{self.methods}/" + f'results_trial={self.trial_idx}.th'
         if not os.path.exists(file_path):
             return
         
