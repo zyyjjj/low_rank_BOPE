@@ -9,20 +9,21 @@ from ax.utils.common.logger import get_logger
 from botorch.acquisition import LearnedObjective
 from botorch.acquisition.monte_carlo import qNoisyExpectedImprovement, qSimpleRegret
 from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
-from botorch.models import PairwiseGP
+from botorch.models import PairwiseGP, SingleTaskGP
 from botorch.models.deterministic import FixedSingleSampleModel
 from botorch.models.gpytorch import GPyTorchModel
 from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.utils.sampling import draw_sobol_samples
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.pairwise_autoencoder_gp import (
+from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
     get_fitted_autoencoded_util_model,
     get_fitted_outcome_model,
     get_fitted_pca_util_model,
     get_fitted_standard_util_model,
+    Autoencoder
 )
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.utils import gen_comps
+from low_rank_BOPE.autoencoder.utils import gen_comps
 from torch import Tensor
 
 logger: Logger = get_logger(__name__)
@@ -136,6 +137,17 @@ def get_candidate_maximize_util(
     return candidates
 
 
+def get_and_fit_outcome_model(
+    train_X: Tensor,
+    train_Y: Tensor,
+    outcome_model_name: str, # TODO: check
+    bounds: Optional[Tensor] = None,
+    autoencoder: Optional[Autoencoder] = None,
+    **kwargs,
+) -> SingleTaskGP:
+    
+
+
 def get_and_fit_util_model(
     train_Y: Tensor,
     train_comps: Tensor,
@@ -150,7 +162,10 @@ def get_and_fit_util_model(
         util_model, _ = get_fitted_autoencoded_util_model(
             train_Y=train_Y,
             train_comps=train_comps,
-            latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2),
+            latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2), 
+            # TODO: should keep this consistent with pca 
+            # if it's hard to do in one run, maybe set it in config with reasonable number 
+            # from other runs with PCA
             num_joint_train_epochs=util_model_kwargs.get(
                 "autoencoder_num_joint_train_epochs", 500
             ),

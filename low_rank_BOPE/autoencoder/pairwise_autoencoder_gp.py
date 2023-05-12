@@ -24,10 +24,10 @@ from botorch.models.transforms.input import (
 )
 from botorch.models.transforms.outcome import Standardize
 from botorch.utils.sampling import draw_sobol_samples
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.transforms import (
+from low_rank_BOPE.autoencoder.transforms import (
     LinearProjectionInputTransform, LinearProjectionOutcomeTransform,
 )
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.utils import (
+from low_rank_BOPE.autoencoder.utils import (
     fit_pca,
     make_modified_kernel,
 )
@@ -499,7 +499,6 @@ def jointly_opt_ae_util_model(
     return util_model, autoencoder
 
 
-# TODO: check correctness
 def jointly_optimize_models(
     train_X: Tensor,
     train_Y: Tensor,
@@ -536,7 +535,7 @@ def jointly_optimize_models(
         train_Y_latent = autoencoder.encoder(train_Y).detach() 
         train_Y_recons = autoencoder.decoder(train_Y_latent)
 
-        loss = 0 # TODO: is this the right way to initialize?
+        loss = 0 
 
         if train_ae:
             ae_loss = ((train_Y - train_Y_recons) ** 2).sum() / train_Y.shape[-1]
@@ -548,13 +547,9 @@ def jointly_optimize_models(
                 )
 
         if train_outcome_model:    
-            # TODO: this is wrong; there is no set_train_data() method for SingleTaskGP
-            outcome_model.set_train_data(
-                inputs=train_X, targets=train_Y_latent, strict=False 
-            )
+            outcome_model.inputs = train_X
+            outcome_model.targets = train_Y_latent
             outcome_loss = -mll_outcome(outcome_model(train_X), train_Y_latent)
-            # TODO: don't think it's -mll_outcome(autoencoder.decoder(outcome_model(train_X)), train_Y), 
-            # but should double check
             loss += outcome_loss
 
             if epoch % 100 == 0:

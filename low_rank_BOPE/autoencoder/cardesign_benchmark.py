@@ -9,17 +9,17 @@ import torch
 from ax.utils.common.logger import get_logger
 from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.utils.sampling import draw_sobol_samples
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.bope_flow import (
+from low_rank_BOPE.autoencoder.bope_flow import (
     run_single_bo_stage,
     run_single_pe_stage,
 )
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.car_problems import (
+from low_rank_BOPE.autoencoder.car_problems import (
     problem_setup_augmented,
 )
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.pairwise_autoencoder_gp import (
+from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
     get_fitted_outcome_model,
 )
-from fblearner.flow.projects.ae.benchmarks.high_dim_bope.utils import (
+from low_rank_BOPE.autoencoder.utils import (
     generate_random_pref_data,
 )
 
@@ -57,6 +57,12 @@ def run_cardesign_benchmark(
 ) -> Dict:
     problem, util_func = construct_problem(problem_name)
     pe_config_info = strategies_args
+
+    # TODO:
+    # to keep it aligned with our setup
+    # we need to generate the initial X, Y, comps together
+    # then fit the utility model first (together w autoencoder)
+    # then apply the autoencoder to fit an outcome model
 
     # init - design points
     train_X = (
