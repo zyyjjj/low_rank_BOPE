@@ -17,7 +17,7 @@ from low_rank_BOPE.autoencoder.car_problems import (
     problem_setup_augmented,
 )
 from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
-    get_fitted_outcome_model,
+    get_fitted_standard_outcome_model,
 )
 from low_rank_BOPE.autoencoder.utils import (
     generate_random_pref_data,

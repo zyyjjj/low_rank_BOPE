@@ -53,7 +53,7 @@ class DistributionalPortfolioSurrogate(SyntheticTestFunction):
     weights = None
     _optimizers = None
     dim = 3
-    _bounds = torch.tensor([[0, 1], [0, 1], [0, 1]])
+    _bounds = torch.tensor([[0., 1.], [0., 1.], [0., 1.]])
 
     def __init__(
         self,

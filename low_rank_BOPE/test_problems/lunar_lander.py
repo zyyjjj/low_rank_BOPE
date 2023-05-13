@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 import Box2D
 
-import gym
+from gym import Env
 import numpy as np
 import torch
 from Box2D.b2 import (
@@ -86,7 +86,7 @@ class ContactDetector(contactListener):
                 self.env.legs[i].ground_contact = False
 
 
-class _Lunar_Lander(gym.Env, EzPickle):
+class _Lunar_Lander(Env, EzPickle):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": FPS}
 
     continuous = False
@@ -518,6 +518,7 @@ def lunar_lander_reward_Heuristic_fun(params):
     return reward
 
 
+# outcome function
 class LunarLander:
     def __init__(
         self,
@@ -595,3 +596,18 @@ class LunarLander:
 
     def evaluate_true(self, x):
         return self.__call__(x)
+
+
+# util function
+
+class Sigmoid(torch.nn.Module):
+    def __init__(self, scale_coeff: float, threshold: float):
+        super().__init__()
+        self.scale_coeff = scale_coeff
+        self.threshold = threshold
+
+    def forward(self, Y, X=None):
+        if len(Y.shape) == 1:
+            Y = Y.unsqueeze(0)
+
+        return torch.sum(torch.sigmoid(self.scale_coeff * (Y - self.threshold)), dim = 1)

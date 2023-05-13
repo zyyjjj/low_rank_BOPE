@@ -16,10 +16,12 @@ from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.likelihoods.pairwise import PairwiseLikelihood
 from botorch.models.transforms.input import (
     ChainedInputTransform,
-    ChainedOutcomeTransform,
     InputTransform,
-    OutcomeTransform,
     Normalize,
+)
+from botorch.models.transforms.outcome import (
+    ChainedOutcomeTransform,
+    OutcomeTransform,
     Standardize
 )
 from botorch.models.transforms.outcome import Standardize

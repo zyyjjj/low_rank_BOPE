@@ -18,7 +18,7 @@ from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.utils.sampling import draw_sobol_samples
 from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
     get_fitted_autoencoded_util_model,
-    get_fitted_outcome_model,
+    get_fitted_standard_outcome_model,
     get_fitted_pca_util_model,
     get_fitted_standard_util_model,
     Autoencoder

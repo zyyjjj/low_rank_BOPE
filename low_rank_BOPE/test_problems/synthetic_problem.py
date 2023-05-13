@@ -130,7 +130,7 @@ class PCATestProblem(ConstrainedBaseTestProblem):
         PC_scaling_factors: Tensor,
         simulation_kernel_cls: Type[Kernel] = MaternKernel,
         add_noise_to_PCs: bool = False,
-        jitter: float = 0.000001,
+        jitter: float = 0.000001, # NOTE: Jelena is changing this to 1e-3 on her end
         negate: bool = False,
         state_dict_str: Optional[str] = None,
         **tkwargs,
