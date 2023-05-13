@@ -1,11 +1,12 @@
 from copy import deepcopy
 from logging import Logger
+import logging 
 
 from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
-from ax.utils.common.logger import get_logger
+# from ax.utils.common.logger import get_logger
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import (
     PairwiseGP,
@@ -24,7 +25,6 @@ from botorch.models.transforms.outcome import (
     OutcomeTransform,
     Standardize
 )
-from botorch.models.transforms.outcome import Standardize
 from botorch.utils.sampling import draw_sobol_samples
 from low_rank_BOPE.autoencoder.transforms import (
     LinearProjectionInputTransform, LinearProjectionOutcomeTransform,
@@ -40,7 +40,10 @@ from gpytorch.module import Module
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from torch import Tensor
 
-logger: Logger = get_logger(__name__)
+# logger: Logger = get_logger(__name__)
+logger = logging.getLogger("botorch")
+# logger.setLevel(logging.INFO)
+# logger.handlers.pop()
 
 ##############################################################################################################
 ##############################################################################################################
@@ -168,13 +171,13 @@ class HighDimGP(SingleTaskGP):
 def initialize_outcome_model(
     train_X: Tensor,
     train_Y: Tensor,
-    # latent_dims: int
+    latent_dims: int
 ) -> Tuple[HighDimGP, Likelihood]:
     outcome_model = HighDimGP(
         train_X=train_X,
         train_Y=train_Y,
         autoencoder=None,
-        outcome_transform=Standardize(train_Y.shape[-1]),
+        outcome_transform=Standardize(latent_dims),
     )
     mll = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
     return outcome_model, mll
@@ -185,22 +188,28 @@ def get_fitted_autoencoded_outcome_model(
     train_Y: Tensor,
     num_epochs: int,
     autoencoder: Autoencoder,
-    # TODO: confirm whether we need more args
+    fix_vae: bool = True,
 ) -> HighDimGP:
+    
     train_Y_latent = autoencoder.encoder(train_Y).detach()
     outcome_model, mll = initialize_outcome_model(
         train_X=train_X,
         train_Y=train_Y_latent,
     )
 
-    return opt_outcome_model_under_ae(
-        outcome_model=outcome_model,
-        mll=mll,
-        autoencoder=autoencoder,
+    outcome_model_, _, autoencoder_ = jointly_optimize_models(
         train_X=train_X,
         train_Y=train_Y,
+        outcome_model=outcome_model,
+        mll_outcome=mll,
+        autoencoder=autoencoder,
         num_epochs=num_epochs,
+        train_ae=not fix_vae,
+        train_outcome_model=True,
+        train_util_model=False
     )
+    
+    return outcome_model_, autoencoder_
 
 
 def get_fitted_pca_outcome_model(
@@ -245,6 +254,60 @@ def get_fitted_standard_outcome_model(train_X: Tensor, train_Y: Tensor) -> Singl
     fit_gpytorch_mll(mll_outcome)
     
     return outcome_model
+
+
+def get_fitted_autoencoded_outcome_model(
+    train_X: Tensor,
+    train_Y: Tensor,
+    latent_dims: int,
+    num_joint_train_epochs: int,
+    num_autoencoder_pretrain_epochs: int,
+    # num_unlabeled_outcomes: int,
+    fix_vae: bool = False
+) -> Tuple[HighDimGP, Autoencoder]:
+    
+    # TODO: still want this? 
+    # not very reasonable to gen posterior samples from the outcome model yet to be trained
+    # if (
+    #     (outcome_model is not None)
+    #     and (bounds is not None)
+    #     and (num_unlabeled_outcomes > 0)
+    # ):
+    #     unlabeled_train_Y = _get_unlabeled_outcomes(
+    #         outcome_model=outcome_model,
+    #         bounds=bounds,
+    #         nsample=num_unlabeled_outcomes,
+    #     )
+    #     unlabeled_train_Y = torch.cat((train_Y, unlabeled_train_Y), dim=0)
+    # else:
+    #     unlabeled_train_Y = train_Y
+
+    autoencoder = get_autoencoder(
+        # train_Y=unlabeled_train_Y,
+        train_Y=train_Y,
+        latent_dims=latent_dims,
+        pre_train_epoch=num_autoencoder_pretrain_epochs,
+    )
+    # get latent embeddings for train_Y
+    train_Y_latent = autoencoder.encoder(train_Y).detach()
+    outcome_model, mll_outcome = initialize_outcome_model(
+        train_X=train_X, train_Y=train_Y_latent, latent_dims=latent_dims
+    )
+
+    # train outcome model under fixed vae
+    outcome_model_, _, autoencoder_ = jointly_optimize_models(
+        train_X=train_X,
+        train_Y=train_Y,
+        autoencoder=autoencoder,
+        num_epochs=num_joint_train_epochs,
+        outcome_model=outcome_model,
+        mll_outcome=mll_outcome,
+        train_ae=not fix_vae,
+        train_outcome_model=True,
+        train_util_model=False
+    )
+
+    return outcome_model_, autoencoder_
 
 
 ##############################################################################################################
@@ -323,6 +386,7 @@ def get_fitted_autoencoded_util_model(
     num_unlabeled_outcomes: int,
     outcome_model: Optional[GPyTorchModel] = None,
     bounds: Optional[Tensor] = None,
+    fix_vae: bool = False,
 ) -> Tuple[HighDimPairwiseGP, Autoencoder]:
     r"""Fit utility model with auto-encoder
     Args:
@@ -357,14 +421,31 @@ def get_fitted_autoencoded_util_model(
         outcomes=z, comps=train_comps, latent_dims=latent_dims
     )
 
-    return jointly_opt_ae_util_model(
-        util_model=util_model,
-        mll_util=mll_util,
-        autoencoder=autoencoder,
-        train_outcomes=train_Y,
-        train_comps=train_comps,
-        num_epochs=num_joint_train_epochs,
-    )
+    if not fix_vae:
+        # jointly optimize util model and vae parameters
+        return jointly_opt_ae_util_model(
+            util_model=util_model,
+            mll_util=mll_util,
+            autoencoder=autoencoder,
+            train_outcomes=train_Y,
+            train_comps=train_comps,
+            num_epochs=num_joint_train_epochs,
+        )
+    else:
+        # train util model under fixed vae
+        _, util_model_, autoencoder_ = jointly_optimize_models(
+            train_Y=train_Y,
+            train_comps=train_comps,
+            autoencoder=autoencoder,
+            num_epochs=num_joint_train_epochs,
+            util_model=util_model,
+            mll_util=mll_util,
+            train_ae=False,
+            train_util_model=True,
+            train_outcome_model=False
+        )
+    
+        return util_model_, autoencoder_
 
 
 def get_fitted_pca_util_model(
@@ -474,7 +555,7 @@ def jointly_opt_ae_util_model(
         ]  # L2 loss functions
         if epoch % 100 == 0:
             logger.info(
-                f"Pref model joint training epoch {epoch}: autoencode loss func = {vae_loss}"
+                f"Pref model joint training epoch {epoch}: autoencoder loss func = {vae_loss}"
             )
 
         # update the util training data (datapoints) with the new latent-embed of outcomes
@@ -502,15 +583,15 @@ def jointly_opt_ae_util_model(
 
 
 def jointly_optimize_models(
-    train_X: Tensor,
     train_Y: Tensor,
-    train_comps: Tensor,
+    autoencoder: Autoencoder,
     num_epochs: int,
-    outcome_model: Optional[HighDimGP]=None,
-    mll_outcome: Optional[ExactMarginalLogLikelihood]=None,
-    util_model: Optional[HighDimPairwiseGP]=None,
-    mll_util: Optional[PairwiseLaplaceMarginalLogLikelihood]=None,
-    autoencoder: Optional[Autoencoder]=None,
+    train_X: Optional[Tensor] = None,
+    train_comps: Optional[Tensor] = None,
+    outcome_model: Optional[HighDimGP] = None,
+    mll_outcome: Optional[ExactMarginalLogLikelihood] = None,
+    util_model: Optional[HighDimPairwiseGP] = None,
+    mll_util: Optional[PairwiseLaplaceMarginalLogLikelihood] = None,
     train_ae: bool = True,
     train_outcome_model: bool = True,
     train_util_model: bool = True
@@ -523,11 +604,11 @@ def jointly_optimize_models(
         autoencoder.train()
         optimizer_params.append({"params": autoencoder.parameters()})
     if train_outcome_model:
-        assert None not in {outcome_model, mll_outcome} , "Must provide an outcome model and mll to train"
+        assert None not in {train_X, outcome_model, mll_outcome} , "Must provide train_X, outcome model, and mll to train"
         outcome_model.train()
         optimizer_params.append({"params": outcome_model.parameters()})
     if train_util_model:
-        assert None not in {util_model, mll_util} , "Must provide a util model and mll to train"
+        assert None not in {train_comps, util_model, mll_util} , "Must provide train_comps, util model, and mll to train"
         util_model.train()
         optimizer_params.append({"params": util_model.parameters()})
     
@@ -552,7 +633,7 @@ def jointly_optimize_models(
             outcome_model.inputs = train_X
             outcome_model.targets = train_Y_latent
             outcome_loss = -mll_outcome(outcome_model(train_X), train_Y_latent)
-            loss += outcome_loss
+            loss += torch.sum(outcome_loss)
 
             if epoch % 100 == 0:
                 logger.info(
@@ -578,19 +659,16 @@ def jointly_optimize_models(
         
     if train_ae:
         autoencoder.eval()
-        if outcome_model is not None:
-            outcome_model.set_autoencoder(autoencoder=autoencoder)
-        if util_model is not None:
-            util_model.set_autoencoder(autoencoder=autoencoder)
-    if train_outcome_model:
+    if outcome_model is not None:
         outcome_model.eval()
-    if train_util_model:
+        outcome_model.set_autoencoder(autoencoder=autoencoder)
+    if util_model is not None:
         util_model.eval()
+        util_model.set_autoencoder(autoencoder=autoencoder)
     
     return (outcome_model if train_outcome_model else None,
         util_model if train_util_model else None,
         autoencoder if train_ae else None)
-
 
 
 ##############################################################################################################

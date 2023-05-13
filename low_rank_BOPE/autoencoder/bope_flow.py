@@ -1,11 +1,12 @@
 #!/usr/bin/env fbpython
 # (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
 
+import logging
 from logging import Logger
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from ax.utils.common.logger import get_logger
+# from ax.utils.common.logger import get_logger
 from botorch.acquisition import LearnedObjective
 from botorch.acquisition.monte_carlo import qNoisyExpectedImprovement, qSimpleRegret
 from botorch.acquisition.preference import AnalyticExpectedUtilityOfBestOption
@@ -17,17 +18,21 @@ from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.utils.sampling import draw_sobol_samples
 from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
-    get_fitted_autoencoded_util_model,
-    get_fitted_standard_outcome_model,
-    get_fitted_pca_util_model,
     get_fitted_standard_util_model,
+    get_fitted_autoencoded_util_model,
+    get_fitted_pca_util_model,
+    get_fitted_standard_outcome_model,
+    get_fitted_autoencoded_outcome_model,
+    get_fitted_pca_outcome_model,
     Autoencoder
 )
 from low_rank_BOPE.autoencoder.utils import gen_comps
 from torch import Tensor
 
-logger: Logger = get_logger(__name__)
-
+# logger: Logger = get_logger(__name__)
+logger = logging.getLogger("botorch")
+# logger.setLevel(logging.INFO)
+# logger.handlers.pop()
 
 MC_SAMPLES = 256
 NUM_RESTARTS = 10
@@ -140,14 +145,40 @@ def get_candidate_maximize_util(
 def get_and_fit_outcome_model(
     train_X: Tensor,
     train_Y: Tensor,
-    outcome_model_name: str, # TODO: check
-    bounds: Optional[Tensor] = None,
-    autoencoder: Optional[Autoencoder] = None,
+    util_model_name: str, # not the best name but lets keep it for now
     **kwargs,
 ) -> SingleTaskGP:
+    util_model_kwargs = kwargs.get("util_model_kwargs", {})
+    logger.info(f"Running get_and_fit_outcome_model, util_model_kwargs: {util_model_kwargs}")
+
+    if util_model_name == "joint_autoencoder": 
+        outcome_model, _ = get_fitted_autoencoded_outcome_model(
+            train_X=train_X,
+            train_Y=train_Y,
+            latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2),
+            num_joint_train_epochs=util_model_kwargs.get(
+                "autoencoder_num_joint_train_epochs", 500
+            ),
+            num_autoencoder_pretrain_epochs=util_model_kwargs.get(
+                "autoencoder_num_pretrain_epochs", 200
+            ),
+            fix_vae=True
+        )
+    elif util_model_name == "pca":
+        outcome_model = get_fitted_pca_outcome_model(
+            train_X=train_X,
+            train_Y=train_Y,
+            var_threshold=util_model_kwargs.get("pca_var_threshold", 0.95),
+        )
+    else: # TODO: doublecheck
+        outcome_model = get_fitted_standard_outcome_model(
+            train_X=train_X,
+            train_Y=train_Y
+        )
+
+    return outcome_model
+
     
-
-
 def get_and_fit_util_model(
     train_Y: Tensor,
     train_comps: Tensor,
@@ -157,6 +188,7 @@ def get_and_fit_util_model(
     **kwargs,
 ) -> PairwiseGP:
     util_model_kwargs = kwargs.get("util_model_kwargs", {})
+    logger.info(f"Running get_and_fit_util_model, util_model_kwargs: {util_model_kwargs}")
 
     if util_model_name == "autoencoder":
         util_model, _ = get_fitted_autoencoded_util_model(
@@ -175,6 +207,22 @@ def get_and_fit_util_model(
             num_unlabeled_outcomes=util_model_kwargs.get("num_unlabeled_outcomes", 0),
             outcome_model=outcome_model,
             bounds=bounds,
+        )
+    elif util_model_name == "joint_autoencoder":
+        util_model, _ = get_fitted_autoencoded_util_model(
+            train_Y=train_Y,
+            train_comps=train_comps,
+            latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2), 
+            num_joint_train_epochs=util_model_kwargs.get(
+                "autoencoder_num_joint_train_epochs", 500
+            ),
+            num_autoencoder_pretrain_epochs=util_model_kwargs.get(
+                "autoencoder_num_pretrain_epochs", 200
+            ),
+            num_unlabeled_outcomes=util_model_kwargs.get("num_unlabeled_outcomes", 0),
+            outcome_model=outcome_model,
+            bounds=bounds,
+            fix_vae=True
         )
     elif util_model_name == "pca":
         util_model = get_fitted_pca_util_model(
@@ -235,7 +283,8 @@ def run_single_pe_stage(
             util_model_name=util_model_name,
             outcome_model=outcome_model,
             bounds=problem.bounds,
-            **util_model_kwargs,
+            # **util_model_kwargs,
+            util_model_kwargs=util_model_kwargs, # TODO: call this out when committing
         )
 
         # identified candidate that max util
@@ -249,7 +298,7 @@ def run_single_pe_stage(
             problem.evaluate_true(best_candidates.to(torch.double))
         ).item()  # best obtained util
         max_val_list.append(max_val_identified)
-        logger.info(f"{i}th iter: max val indentified = {max_val_identified}")
+        logger.info(f"{i}th iter: max val identified = {max_val_identified}")
 
         # gen PE candidates
         cand_X, cand_Y = gen_pe_candidates(
@@ -275,9 +324,11 @@ def run_single_pe_stage(
         util_model_name=util_model_name,
         outcome_model=outcome_model,
         bounds=problem.bounds,
-        **util_model_kwargs,
+        # **util_model_kwargs,
+        util_model_kwargs=util_model_kwargs
     )
     # Use DEFAULT sampler to speed things up
+    # TODO: this is different from what we do, to revisit
     pref_obj = LearnedObjective(pref_model=util_model)
     return max_val_list, train_pref_outcomes, train_comps, util_model, pref_obj
 
@@ -297,7 +348,7 @@ def run_single_bo_stage(
     bo_gen_kwargs = pe_config_info.get("bo_gen_kwargs", {})
     util_list = list(util_func(problem.evaluate_true(train_X)).detach().numpy())
 
-    logger.info(f"length of util val = {len(util_list)}")
+    logger.info(f"Running BO, current length of util val = {len(util_list)}")
 
     for i in range(num_bo_iters):
 
@@ -338,9 +389,15 @@ def run_single_bo_stage(
             f"Finished {i}th BO iteration with best obtained util val = {max(util_list)}"
         )
 
-        # need to refit outcome models
-        outcome_model = get_fitted_outcome_model(
-            train_X=train_X, train_Y=train_outcomes
+        # outcome_model = get_fitted_standard_outcome_model(
+        #     train_X=train_X, train_Y=train_outcomes
+        # )
+        outcome_model = get_and_fit_outcome_model(
+            train_X=train_X,
+            train_Y=train_outcomes,
+            util_model_name=pe_config_info["util_model_name"],
+            bounds=problem.bounds,
+            util_model_kwargs=pe_config_info["util_model_kwargs"],
         )
 
         # update util model with updated outcome model if retrain_util_model=True
@@ -351,7 +408,7 @@ def run_single_bo_stage(
                 util_model_name=pe_config_info["util_model_name"],
                 outcome_model=outcome_model,  # updated outcome model (only useful if adding sampled data from outcome model)
                 bounds=problem.bounds,
-                **pe_config_info["util_model_kwargs"],
+                util_model_kwargs=pe_config_info["util_model_kwargs"],
             )
             pref_obj = LearnedObjective(pref_model=util_model)
 
