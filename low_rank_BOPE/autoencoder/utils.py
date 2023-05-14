@@ -7,6 +7,8 @@ from typing import Optional
 import numpy as np
 import torch
 from botorch.utils.sampling import draw_sobol_samples
+from botorch.models.deterministic import DeterministicModel
+from botorch.models.model import Model
 
 from gpytorch.constraints import GreaterThan, Interval
 from gpytorch.kernels import RBFKernel, ScaleKernel
@@ -154,3 +156,42 @@ def make_modified_kernel(ard_num_dims, a=0.01, b=100):
         outputscale_constraint=Interval(lower_bound=a, upper_bound=b),
     )
     return covar_module
+
+
+class ModifiedFixedSingleSampleModel(DeterministicModel):
+    r"""
+    A deterministic model defined by a single sample `w`.
+
+    Given a base model `f` and a fixed sample `w`, the model always outputs
+
+        y = f_mean(x) + f_stddev(x) * w
+
+    We assume the outcomes are uncorrelated here.
+
+    This is modified from FixedSingleSampleModel to handle dimensionality reduction.
+    For models with dim reduction, model.num_outputs is the reduced outcome dimension,
+    whereas we want w to be in the original outcome dimension.
+    In this modification, we define self.w within forward() rather than __init__(),
+    where we fix the dimensionality of w to be posterior(X).event_shape[-1].
+    """
+
+    def __init__(
+        self, model: Model, outcome_dim: int, w: Optional[torch.Tensor] = None
+    ) -> None:
+        r"""
+        Args:
+            model: The base model.
+            outcome_dim: dimensionality of the outcome space
+            w: A 1-d tensor with length = outcome_dim.
+                If None, draw it from a standard normal distribution.
+        """
+        super().__init__()
+        self.model = model
+        self.w = torch.randn(outcome_dim)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        post = self.model.posterior(X)
+
+        # return post.mean + post.variance.sqrt() * self.w.to(X)
+        # adding jitter to avoid numerical issues
+        return post.mean + torch.sqrt(post.variance + 1e-8) * self.w.to(X)

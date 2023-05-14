@@ -26,13 +26,11 @@ from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
     get_fitted_pca_outcome_model,
     Autoencoder
 )
-from low_rank_BOPE.autoencoder.utils import gen_comps
+from low_rank_BOPE.autoencoder.utils import gen_comps, ModifiedFixedSingleSampleModel
 from torch import Tensor
 
 # logger: Logger = get_logger(__name__)
 logger = logging.getLogger("botorch")
-# logger.setLevel(logging.INFO)
-# logger.handlers.pop()
 
 MC_SAMPLES = 256
 NUM_RESTARTS = 10
@@ -82,9 +80,17 @@ BOPE_STRATEGY_FACTORY = {
 
 
 def gen_eubo_candidates(
-    pref_model: PairwiseGP, outcome_model: GPyTorchModel, bounds: Tensor
+    pref_model: PairwiseGP, outcome_model: GPyTorchModel, bounds: Tensor,
+    outcome_dim: int,
+    autoencoder: Optional[Autoencoder] = None,
+    use_modified_fixedsinglesamplemodel: bool = False,
 ) -> Union[Tensor, Tensor, Tensor]:
-    one_sample_outcome_model = FixedSingleSampleModel(model=outcome_model)
+    if not use_modified_fixedsinglesamplemodel:
+        one_sample_outcome_model = FixedSingleSampleModel(model=outcome_model)
+    else:
+        one_sample_outcome_model = ModifiedFixedSingleSampleModel(
+            model=outcome_model, outcome_dim=outcome_dim)
+
     acqf = AnalyticExpectedUtilityOfBestOption(
         pref_model=pref_model, outcome_model=one_sample_outcome_model
     )
@@ -98,11 +104,15 @@ def gen_eubo_candidates(
         options={"batch_limit": 5, "sequential": True},  # change batch limit to 5
     )
     cand_Y = one_sample_outcome_model(cand_X)
+    if autoencoder is not None:
+        cand_Y = autoencoder.decoder(cand_Y).detach()
+    
     return cand_X, cand_Y, acqf_val
 
 
 def gen_random_f_candidates(
-    outcome_model: GPyTorchModel, bounds: Tensor
+    outcome_model: GPyTorchModel, bounds: Tensor,
+    autoencoder: Optional[Autoencoder] = None,
 ) -> Tuple[Tensor, Tensor]:
     cand_X = (
         draw_sobol_samples(
@@ -114,6 +124,9 @@ def gen_random_f_candidates(
         .to(torch.double)
     )
     cand_Y = outcome_model.posterior(cand_X).rsample().squeeze(0).detach()
+    if autoencoder is not None:
+        cand_Y = autoencoder.decoder(cand_Y).detach()
+
     return cand_X, cand_Y
 
 
@@ -149,12 +162,13 @@ def get_and_fit_outcome_model(
     **kwargs,
 ) -> SingleTaskGP:
     util_model_kwargs = kwargs.get("util_model_kwargs", {})
-    logger.info(f"Running get_and_fit_outcome_model, util_model_kwargs: {util_model_kwargs}")
+    logger.debug(f"Running get_and_fit_outcome_model, util_model_kwargs: {util_model_kwargs}")
 
-    if util_model_name == "joint_autoencoder": 
+    if util_model_name in ("autoencoder", "joint_autoencoder"): 
         outcome_model, _ = get_fitted_autoencoded_outcome_model(
             train_X=train_X,
             train_Y=train_Y,
+            autoencoder=kwargs.get("autoencoder", None),
             latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2),
             num_joint_train_epochs=util_model_kwargs.get(
                 "autoencoder_num_joint_train_epochs", 500
@@ -168,9 +182,9 @@ def get_and_fit_outcome_model(
         outcome_model = get_fitted_pca_outcome_model(
             train_X=train_X,
             train_Y=train_Y,
-            var_threshold=util_model_kwargs.get("pca_var_threshold", 0.95),
+            pca_var_threshold=util_model_kwargs.get("pca_var_threshold", 0.95),
         )
-    else: # TODO: doublecheck
+    else: 
         outcome_model = get_fitted_standard_outcome_model(
             train_X=train_X,
             train_Y=train_Y
@@ -188,12 +202,13 @@ def get_and_fit_util_model(
     **kwargs,
 ) -> PairwiseGP:
     util_model_kwargs = kwargs.get("util_model_kwargs", {})
-    logger.info(f"Running get_and_fit_util_model, util_model_kwargs: {util_model_kwargs}")
+    logger.debug(f"Running get_and_fit_util_model, util_model_kwargs: {util_model_kwargs}")
 
     if util_model_name == "autoencoder":
         util_model, _ = get_fitted_autoencoded_util_model(
             train_Y=train_Y,
             train_comps=train_comps,
+            autoencoder=util_model_kwargs.get("autoencoder", None),
             latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2), 
             # TODO: should keep this consistent with pca 
             # if it's hard to do in one run, maybe set it in config with reasonable number 
@@ -212,6 +227,7 @@ def get_and_fit_util_model(
         util_model, _ = get_fitted_autoencoded_util_model(
             train_Y=train_Y,
             train_comps=train_comps,
+            autoencoder=util_model_kwargs.get("autoencoder", None),
             latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2), 
             num_joint_train_epochs=util_model_kwargs.get(
                 "autoencoder_num_joint_train_epochs", 500
@@ -242,10 +258,13 @@ def get_and_fit_util_model(
 
 
 def gen_pe_candidates(
+    util_model_name: str,
     pe_gen_strategy: str,
     pref_model: PairwiseGP,
     outcome_model: GPyTorchModel,
     bounds: Tensor,
+    outcome_dim: int,
+    autoencoder: Optional[Autoencoder] = None,
 ) -> Tuple[Tensor, Tensor]:
     # EUBO-zeta:
     if pe_gen_strategy == "eubo":
@@ -253,12 +272,16 @@ def gen_pe_candidates(
             pref_model=pref_model,
             outcome_model=outcome_model,
             bounds=bounds,
+            outcome_dim=outcome_dim,
+            use_modified_fixedsinglesamplemodel=True if util_model_name == "pca" else False,
+            autoencoder=autoencoder
         )
     elif pe_gen_strategy == "random-f":
         # random-f
         cand_X, cand_Y = gen_random_f_candidates(
             outcome_model=outcome_model,
             bounds=bounds,
+            autoencoder=autoencoder
         )
     return cand_X, cand_Y
 
@@ -271,7 +294,8 @@ def run_single_pe_stage(
     num_pref_iters: int,
     problem: MultiObjectiveTestProblem,
     util_func: torch.nn.Module,
-) -> Union[List, Tensor, Tensor, PairwiseGP, LearnedObjective]:
+    autoencoder: Optional[Autoencoder] = None,
+) -> Union[List, Tensor, Tensor, PairwiseGP, LearnedObjective, Any]:
     max_val_list = []
     for i in range(num_pref_iters):  # number of batch iterations
         # fit pref model
@@ -283,8 +307,8 @@ def run_single_pe_stage(
             util_model_name=util_model_name,
             outcome_model=outcome_model,
             bounds=problem.bounds,
-            # **util_model_kwargs,
-            util_model_kwargs=util_model_kwargs, # TODO: call this out when committing
+            autoencoder=autoencoder,
+            util_model_kwargs=util_model_kwargs, 
         )
 
         # identified candidate that max util
@@ -302,14 +326,18 @@ def run_single_pe_stage(
 
         # gen PE candidates
         cand_X, cand_Y = gen_pe_candidates(
+            util_model_name=util_model_name,
             pe_gen_strategy=pe_config_info["pe_gen_strategy"],
             pref_model=util_model,
             outcome_model=outcome_model,
             bounds=problem.bounds,
+            outcome_dim=problem.outcome_dim,
         )
 
         # obtain evaluated data - preferences from DM
         cand_Y = cand_Y.detach().clone()
+        if autoencoder is not None:
+            cand_Y = autoencoder.decoder(cand_Y).detach()
         cand_comps = gen_comps(util_func(cand_Y))
 
         # update training data
@@ -324,13 +352,13 @@ def run_single_pe_stage(
         util_model_name=util_model_name,
         outcome_model=outcome_model,
         bounds=problem.bounds,
-        # **util_model_kwargs,
+        autoencoder=autoencoder,
         util_model_kwargs=util_model_kwargs
     )
     # Use DEFAULT sampler to speed things up
     # TODO: this is different from what we do, to revisit
     pref_obj = LearnedObjective(pref_model=util_model)
-    return max_val_list, train_pref_outcomes, train_comps, util_model, pref_obj
+    return max_val_list, train_pref_outcomes, train_comps, util_model, pref_obj, autoencoder
 
 
 def run_single_bo_stage(
@@ -344,13 +372,17 @@ def run_single_bo_stage(
     num_bo_iters: int,
     problem: MultiObjectiveTestProblem,
     util_func: torch.nn.Module,
-) -> Union[List, Tensor, Tensor, GPyTorchModel]:
+    autoencoder: Optional[Autoencoder] = None,
+) -> Union[List, Tensor, Tensor, GPyTorchModel, Any]:
     bo_gen_kwargs = pe_config_info.get("bo_gen_kwargs", {})
     util_list = list(util_func(problem.evaluate_true(train_X)).detach().numpy())
 
     logger.info(f"Running BO, current length of util val = {len(util_list)}")
 
     for i in range(num_bo_iters):
+
+        logger.info(f"Running BO iteration {i}")
+        logger.debug(f"train X shape: {train_X.shape}")
 
         acq_func = qNoisyExpectedImprovement(
             model=outcome_model,
@@ -389,15 +421,13 @@ def run_single_bo_stage(
             f"Finished {i}th BO iteration with best obtained util val = {max(util_list)}"
         )
 
-        # outcome_model = get_fitted_standard_outcome_model(
-        #     train_X=train_X, train_Y=train_outcomes
-        # )
         outcome_model = get_and_fit_outcome_model(
             train_X=train_X,
             train_Y=train_outcomes,
             util_model_name=pe_config_info["util_model_name"],
             bounds=problem.bounds,
-            util_model_kwargs=pe_config_info["util_model_kwargs"],
+            autoencoder=autoencoder,
+            util_model_kwargs=pe_config_info.get("util_model_kwargs", {})
         )
 
         # update util model with updated outcome model if retrain_util_model=True
@@ -408,8 +438,9 @@ def run_single_bo_stage(
                 util_model_name=pe_config_info["util_model_name"],
                 outcome_model=outcome_model,  # updated outcome model (only useful if adding sampled data from outcome model)
                 bounds=problem.bounds,
+                autoencoder=autoencoder,
                 util_model_kwargs=pe_config_info["util_model_kwargs"],
             )
             pref_obj = LearnedObjective(pref_model=util_model)
 
-    return util_list, train_X, train_outcomes, outcome_model
+    return util_list, train_X, train_outcomes, outcome_model, autoencoder

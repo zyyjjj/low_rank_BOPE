@@ -4,9 +4,22 @@
     "num_sobol_prefs": 25,
     "num_bo_iters": 2,
     "num_pref_iters": 2,
-    "num_stages": 3,
+    "num_stages": 3, 
     "reps": 1,
     "strategies": {
+        "joint-autoencoder-eubo-2-200-500": {
+            "util_model_name": "joint-autoencoder",
+            "util_model_kwargs": {
+                "autoencoder_latent_dims": 2,
+                "num_unlabeled_outcomes": 0,
+                "autoencoder_num_joint_train_epochs": 500,
+                "autoencoder_num_pretrain_epochs": 200
+            },
+            "pe_gen_strategy": "eubo",
+            "bo_gen_kwargs": {
+                "retrain_util_model": false
+            }
+        },
         "autoencoder-eubo-2-200-500": {
             "util_model_name": "autoencoder",
             "util_model_kwargs": {
