@@ -687,7 +687,7 @@ class AugmentedProblem(MultiObjectiveTestProblem):
             self.outcome_projection_matrix = torch.randn(
                 (self.base_outcome_dim, self.outcome_dim), dtype=torch.double
             )
-            print("Generated outcome projection matrix: ", self.outcome_projection_matrix)
+            # print("Generated outcome projection matrix: ", self.outcome_projection_matrix)
 
     def evaluate_true(self, X):
 

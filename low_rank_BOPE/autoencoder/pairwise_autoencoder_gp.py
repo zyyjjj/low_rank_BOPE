@@ -174,12 +174,13 @@ def get_fitted_pca_outcome_model(
     train_X: Tensor,
     train_Y: Tensor,
     pca_var_threshold: float,
+    standardize: bool = False,
 ) -> SingleTaskGP:
     projection = fit_pca(
         train_Y = train_Y,
         var_threshold = pca_var_threshold,
         weights = None,
-        standardize=False # TODO: revisit, might cause issues for some problems -- should make it a kwarg
+        standardize=standardize,
     )
     outcome_tf = ChainedOutcomeTransform(
         **{
@@ -331,6 +332,7 @@ def initialize_util_model(
 
 def get_fitted_autoencoded_util_model(
     train_Y: Tensor,
+    train_pref_outcomes: Tensor,
     train_comps: Tensor,
     latent_dims: int,
     num_joint_train_epochs: int,
@@ -343,7 +345,7 @@ def get_fitted_autoencoded_util_model(
 ) -> Tuple[HighDimPairwiseGP, Autoencoder]:
     r"""Fit utility model with auto-encoder
     Args:
-        train_Y: `num_samples x outcome_dim` tensor of outcomes
+        train_pref_outcomes: `num_samples x outcome_dim` tensor of outcomes
         train_comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
         outcome_model: if not None, we will sample 100 fakes outcomes from it for
             training auto-encoder otherwiese, we use train_Y (labeled preference training data)
@@ -370,7 +372,7 @@ def get_fitted_autoencoded_util_model(
             pre_train_epoch=num_autoencoder_pretrain_epochs,
         )
     # get latent embeddings for train_Y
-    z = autoencoder.encoder(train_Y).detach()
+    z = autoencoder.encoder(train_pref_outcomes).detach()
     util_model, mll_util = initialize_util_model(
         outcomes=z, comps=train_comps, latent_dims=latent_dims
     )
@@ -381,7 +383,8 @@ def get_fitted_autoencoded_util_model(
             util_model=util_model,
             mll_util=mll_util,
             autoencoder=autoencoder,
-            train_outcomes=train_Y,
+            train_Y=train_Y,
+            train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
             num_epochs=num_joint_train_epochs,
         )
@@ -389,6 +392,7 @@ def get_fitted_autoencoded_util_model(
         # train util model under fixed vae
         _, util_model_, autoencoder_ = jointly_optimize_models(
             train_Y=train_Y,
+            train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
             autoencoder=autoencoder,
             num_epochs=num_joint_train_epochs,
@@ -404,11 +408,13 @@ def get_fitted_autoencoded_util_model(
 
 def get_fitted_pca_util_model(
     train_Y: Tensor,
+    train_pref_outcomes: Tensor,
     train_comps: Tensor,
     pca_var_threshold: float,
     num_unlabeled_outcomes: int,
     outcome_model: Optional[GPyTorchModel] = None,
     bounds: Optional[Tensor] = None,
+    standardize: bool = False,
 ) -> PairwiseGP:
     r"""Fit utility model based on given data and model_kwargs
     Args:
@@ -438,7 +444,7 @@ def get_fitted_pca_util_model(
         # need to check the selection of var threshold
         var_threshold=pca_var_threshold,
         weights=None,
-        standardize=True,
+        standardize=standardize,
     )
 
     input_tf = ChainedInputTransform(
@@ -450,7 +456,7 @@ def get_fitted_pca_util_model(
     covar_module = make_modified_kernel(ard_num_dims=projection.shape[0])
     logger.info(f"pca projection matrix shape: {projection.shape}")
     util_model = PairwiseGP(
-        datapoints=train_Y,
+        datapoints=train_pref_outcomes,
         comparisons=train_comps,
         input_transform=input_tf,
         covar_module=covar_module,
@@ -461,19 +467,19 @@ def get_fitted_pca_util_model(
 
 
 def get_fitted_standard_util_model(
-    train_Y: Tensor,
+    train_pref_outcomes: Tensor,
     train_comps: Tensor,
 ) -> PairwiseGP:
     r"""Fit standard utility model without dim reduction on outcome spaces
     Args:
-        train_Y: `num_samples x outcome_dim` tensor of outcomes
+        train_pref_outcomes: `num_samples x outcome_dim` tensor of outcomes
         train_comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
     """
     util_model = PairwiseGP(
-        datapoints=train_Y,
+        datapoints=train_pref_outcomes,
         comparisons=train_comps,
-        input_transform=Normalize(train_Y.shape[1]),  # outcome_dim
-        covar_module=make_modified_kernel(ard_num_dims=train_Y.shape[1]),
+        input_transform=Normalize(train_pref_outcomes.shape[1]),  # outcome_dim
+        covar_module=make_modified_kernel(ard_num_dims=train_pref_outcomes.shape[1]),
     )
     mll_util = PairwiseLaplaceMarginalLogLikelihood(util_model.likelihood, util_model)
     fit_gpytorch_mll(mll_util)
@@ -488,7 +494,8 @@ def jointly_opt_ae_util_model(
     util_model: HighDimPairwiseGP,
     mll_util: PairwiseLaplaceMarginalLogLikelihood,
     autoencoder: Autoencoder,
-    train_outcomes: Tensor,
+    train_Y: Tensor,
+    train_pref_outcomes: Tensor,
     train_comps: Tensor,
     num_epochs: int,
 ) -> Tuple[HighDimPairwiseGP, Autoencoder]:
@@ -501,10 +508,10 @@ def jointly_opt_ae_util_model(
     )
 
     for epoch in range(num_epochs):
-        outcomes_hat = autoencoder(train_outcomes)
-        z = autoencoder.encoder(train_outcomes).detach()
+        train_Y_recons = autoencoder(train_Y)
+        z = autoencoder.encoder(train_pref_outcomes).detach()
         # TODO: weight by the uncertainty
-        vae_loss = ((train_outcomes - outcomes_hat) ** 2).sum() / train_outcomes.shape[
+        vae_loss = ((train_Y - train_Y_recons) ** 2).sum() / train_Y.shape[
             -1
         ]  # L2 loss functions
         if epoch % 100 == 0:
@@ -537,10 +544,11 @@ def jointly_opt_ae_util_model(
 
 
 def jointly_optimize_models(
-    train_Y: Tensor,
     autoencoder: Autoencoder,
+    train_Y: Tensor,
     num_epochs: int,
     train_X: Optional[Tensor] = None,
+    train_pref_outcomes: Optional[Tensor] = None,
     train_comps: Optional[Tensor] = None,
     outcome_model: Optional[HighDimGP] = None,
     mll_outcome: Optional[ExactMarginalLogLikelihood] = None,
@@ -554,15 +562,17 @@ def jointly_optimize_models(
     optimizer_params = []
 
     if train_ae:
-        assert autoencoder is not None, "Must provide an autoencoder to train"
+        assert None not in {autoencoder, train_Y}, "Must provide train_Y and autoencoder to train"
         autoencoder.train()
         optimizer_params.append({"params": autoencoder.parameters()})
     if train_outcome_model:
-        assert None not in {train_X, outcome_model, mll_outcome} , "Must provide train_X, outcome model, and mll to train"
+        assert None not in {train_X, train_Y, outcome_model, mll_outcome} , \
+            "Must provide train_X, train_Y, outcome model, and mll to train"
         outcome_model.train()
         optimizer_params.append({"params": outcome_model.parameters()})
     if train_util_model:
-        assert None not in {train_comps, util_model, mll_util} , "Must provide train_comps, util model, and mll to train"
+        assert None not in {train_pref_outcomes, train_comps, util_model, mll_util} , \
+            "Must provide train_pref_outcomes, train_comps, util model, and mll to train"
         util_model.train()
         optimizer_params.append({"params": util_model.parameters()})
     
@@ -570,7 +580,8 @@ def jointly_optimize_models(
 
     for epoch in range(num_epochs):
         train_Y_latent = autoencoder.encoder(train_Y).detach() 
-        train_Y_recons = autoencoder.decoder(train_Y_latent)
+        # train_Y_recons = autoencoder.decoder(train_Y_latent)
+        train_Y_recons = autoencoder(train_Y)
 
         loss = 0 
 
@@ -595,10 +606,14 @@ def jointly_optimize_models(
                 )
 
         if train_util_model:
+            
+            train_pref_outcomes_latent = autoencoder.encoder(train_pref_outcomes).detach() 
+
             util_model.set_train_data(
-                comparisons=train_comps, datapoints=train_Y_latent, update_model=True
+                comparisons=train_comps, datapoints=train_pref_outcomes_latent, update_model=True
             )
-            util_pred = util_model(train_Y_latent)
+
+            util_pred = util_model(train_pref_outcomes_latent)
             util_loss = -mll_util(util_pred, train_comps)
             loss += util_loss
 

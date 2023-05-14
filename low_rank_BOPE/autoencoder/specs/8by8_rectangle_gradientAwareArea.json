@@ -9,12 +9,13 @@
     "reps": 1,
     "strategies": {
         "joint-autoencoder-eubo-2-200-500": {
-            "util_model_name": "joint-autoencoder",
+            "util_model_name": "joint_autoencoder",
             "util_model_kwargs": {
                 "autoencoder_latent_dims": 2,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
-                "autoencoder_num_pretrain_epochs": 200
+                "autoencoder_num_joint_pretrain_epochs": 0,
+                "autoencoder_num_individual_pretrain_epochs": 200
             },
             "pe_gen_strategy": "eubo",
             "bo_gen_kwargs": {
@@ -27,7 +28,8 @@
                 "autoencoder_latent_dims": 2,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
-                "autoencoder_num_pretrain_epochs": 200
+                "autoencoder_num_pretrain_epochs": 0,
+                "autoencoder_num_individual_pretrain_epochs": 200
             },
             "pe_gen_strategy": "eubo",
             "bo_gen_kwargs": {
@@ -40,7 +42,8 @@
                 "autoencoder_latent_dims": 5,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
-                "autoencoder_num_pretrain_epochs": 500
+                "autoencoder_num_joint_pretrain_epochs": 0,
+                "autoencoder_num_individual_pretrain_epochs": 500
             },
             "pe_gen_strategy": "eubo",
             "bo_gen_kwargs": {

@@ -9,15 +9,13 @@ sys.path.append("../..")
 import torch
 # from ax.utils.common.logger import get_logger 
 import logging
+from gpytorch.mlls import ExactMarginalLogLikelihood
+from botorch.models import PairwiseLaplaceMarginalLogLikelihood
 from botorch.test_functions.base import MultiObjectiveTestProblem
 from botorch.utils.sampling import draw_sobol_samples
 from low_rank_BOPE.autoencoder.bope_flow import (
     run_single_bo_stage,
     run_single_pe_stage,
-    get_and_fit_outcome_model
-)
-from low_rank_BOPE.autoencoder.car_problems import (
-    problem_setup_augmented,
 )
 from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
     get_fitted_standard_outcome_model, 
@@ -29,25 +27,21 @@ from low_rank_BOPE.autoencoder.pairwise_autoencoder_gp import (
     initialize_util_model,
     initialize_outcome_model,
 )
-from low_rank_BOPE.autoencoder.utils import (
-    generate_random_pref_data, gen_comps
-)
+from low_rank_BOPE.autoencoder.utils import gen_comps
+from low_rank_BOPE.fblearner.make_problem import make_problem_and_util_func
+from low_rank_BOPE.fblearner.problem_setups import PROBLEM_SETUPS
 
 # logger: Logger = get_logger(__name__)
 logger = logging.getLogger("botorch")
 
 
-# TODO: we can just copy over make_problem.py from ../fblearner/
 def construct_problem(
-    problem_name: str,
+    problem_name: str
 ) -> Tuple[MultiObjectiveTestProblem, torch.nn.Module]:
-    sim_setup = problem_setup_augmented(
-        problem_name,
-        augmented_dims_noise=0.0001,
-        **{"dtype": torch.double},
-    )
-    problem = sim_setup[2]
-    util_func = sim_setup[4]
+    
+    problem, util_func = make_problem_and_util_func(
+        problem_name, options = PROBLEM_SETUPS[problem_name])
+    
     return problem, util_func
 
 
@@ -81,16 +75,17 @@ def run_cardesign_benchmark(
         autoencoder = get_autoencoder(
             train_Y=train_Y,
             latent_dims=strategies_args["util_model_kwargs"]["autoencoder_latent_dims"], 
-            pre_train_epoch=strategies_args["util_model_kwargs"]["autoencoder_num_pretrain_epochs"],
+            # pre_train_epoch=strategies_args["util_model_kwargs"]["autoencoder_num_individual_pretrain_epochs"],
+            pre_train_epoch=0,
         )
-
-        z = autoencoder.encoder(train_Y).detach()
+        train_Y_latent = autoencoder.encoder(train_Y).detach()
         outcome_model, mll_outcome = initialize_outcome_model(
-            train_X=train_X, train_Y=z, 
+            train_X=train_X, train_Y=train_Y_latent, 
             latent_dims=strategies_args["util_model_kwargs"]["autoencoder_latent_dims"]
         )
+        train_pref_outcomes_latent = autoencoder.encoder(train_pref_outcomes).detach()
         util_model, mll_util = initialize_util_model(
-            outcomes=z, comps=train_comps, 
+            outcomes=train_pref_outcomes_latent, comps=train_comps, 
             latent_dims=strategies_args["util_model_kwargs"]["autoencoder_latent_dims"]
         )
     
@@ -103,13 +98,16 @@ def run_cardesign_benchmark(
 
     for istage in range(num_stages):
 
-        if strategies_args["util_model_name"] in ("autoencoder", "joint_autoencoder"):
+        logger.info(f"========== Start {istage}th stage ... ==========")
 
-            logger.info(f"Jointly train VAE, outcome, util models in {istage}th stage ...")
+        if strategies_args["util_model_name"] == "joint_autoencoder":
+            logger.info(f"======= Jointly train VAE, outcome, util models in {istage}th stage ... =======")
+            logger.debug(f"train_X: {train_X.shape}, train_Y: {train_Y.shape}, train_comps: {train_comps.shape}")
             # training VAE jointly w outcome and util models
             outcome_model, util_model, autoencoder = jointly_optimize_models(
                 train_X=train_X,
                 train_Y=train_Y,
+                train_pref_outcomes=train_pref_outcomes,
                 train_comps=train_comps,
                 outcome_model=outcome_model,
                 mll_outcome=mll_outcome,
@@ -121,30 +119,51 @@ def run_cardesign_benchmark(
                 train_outcome_model=True,
                 train_util_model=True,
             )
-
+            logger.debug(f"After joint training w VAE, outcome model inputs and targets shape: {outcome_model.inputs.shape}, {outcome_model.targets.shape}")
+            logger.debug(f"After joint training w VAE, util model input and output shape: {util_model.unconsolidated_datapoints.shape}, {util_model.unconsolidated_comparisons.shape}")
+        elif strategies_args["util_model_name"] == "autoencoder":
+            logger.info(f"======= Train VAE, outcome, util models separately in {istage}th stage ... =======")
+            logger.debug(f"train_X: {train_X.shape}, train_Y: {train_Y.shape}, train_comps: {train_comps.shape}")
+            autoencoder = get_autoencoder(
+                train_Y=train_Y,
+                latent_dims=strategies_args["util_model_kwargs"]["autoencoder_latent_dims"], 
+                pre_train_epoch=strategies_args["util_model_kwargs"]["autoencoder_num_individual_pretrain_epochs"],
+            )
+            train_Y_latent = autoencoder.encoder(train_Y).detach()
+            outcome_model = get_fitted_standard_outcome_model(
+                train_X=train_X, train_Y=train_Y_latent,
+            )
+            train_pref_outcomes_latent = autoencoder.encoder(train_pref_outcomes).detach()
+            util_model = get_fitted_standard_util_model(
+                train_pref_outcomes = train_pref_outcomes_latent,
+                train_comps = train_comps,
+            )
         elif strategies_args["util_model_name"] == "pca":
+            logger.info(f"======= Train PCA outcome and util models in {istage}th stage ... =======")
             outcome_model = get_fitted_pca_outcome_model(
                 train_X=train_X,
                 train_Y=train_Y,
-                pca_var_threshold = strategies_args["util_model_kwargs"]["pca_var_threshold"]
+                pca_var_threshold = strategies_args["util_model_kwargs"]["pca_var_threshold"],
+                standardize=strategies_args["util_model_kwargs"].get("standardize", False)
             )
             util_model = get_fitted_pca_util_model(
                 train_Y=train_Y,
+                train_pref_outcomes=train_pref_outcomes,
                 train_comps=train_comps,
                 pca_var_threshold = strategies_args["util_model_kwargs"]["pca_var_threshold"],
-                num_unlabeled_outcomes=strategies_args["util_model_kwargs"].get("num_unlabeled_outcomes", 0)
+                num_unlabeled_outcomes=strategies_args["util_model_kwargs"].get("num_unlabeled_outcomes", 0),
+                standardize=strategies_args["util_model_kwargs"].get("standardize", False)
             )
-        
         elif strategies_args["util_model_name"] == "standard":
+            logger.info(f"======= Train standard outcome and util models in {istage}th stage ... =======")
             outcome_model = get_fitted_standard_outcome_model(
                 train_X=train_X,
                 train_Y=train_Y,
             )
             util_model = get_fitted_standard_util_model(
-                train_Y=train_Y,
+                train_pref_outcomes=train_pref_outcomes,
                 train_comps=train_comps,
             )
-        
         else:
             raise NotImplementedError(f"{strategies_args['util_model_name']} is not supported")
 
@@ -159,6 +178,7 @@ def run_cardesign_benchmark(
             pref_obj,  # learned objective
             autoencoder
         ) = run_single_pe_stage(
+            train_Y=train_Y,
             train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
             outcome_model=outcome_model,
@@ -170,11 +190,13 @@ def run_cardesign_benchmark(
             autoencoder=autoencoder,
         )
         pe_stage_result_list.extend(max_val_list)
+        mll_util = PairwiseLaplaceMarginalLogLikelihood(util_model.likelihood, util_model)
 
         logger.debug(f"train_pref_outcomes shape: {train_pref_outcomes.shape}")
         logger.debug(f"train_comps shape: {train_comps.shape}")
         logger.debug(f"outcome model num outputs: {outcome_model.num_outputs}")
         logger.debug(f"autoencoder after {istage}th PE stage: {autoencoder}")
+        logger.debug(f"After {istage}th PE stage, util model input and output shape: {util_model.unconsolidated_datapoints.shape}, {util_model.unconsolidated_comparisons.shape}")
 
         logger.info(f"======= run {istage}th BO stage ... =======")
         # run BO stage
@@ -193,9 +215,8 @@ def run_cardesign_benchmark(
             util_list=bo_stage_result_list,
             autoencoder=autoencoder,
         )
-        # bo_stage_result_list = (
-        #     util_list  # util_list is updated within run_single_bo_stage
-        # )
+        logger.debug(f"After {istage}th BO stage, train_X and train_Y shape: {train_X.shape}, {train_Y.shape}")
+        mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
 
     return {
         "PE": pe_stage_result_list,
@@ -215,7 +236,7 @@ def run_cardesign_benchmark_reps(
     reps: int = 5,
 ) -> Dict[str, List[Dict]]:
     res_all = {s: [] for s in strategies}
-    # carcabdesign_7d9d_piecewiselinear_72
+
     for _ in range(reps):
         for strategy, strategies_args in strategies.items():
             res_all[strategy].append(

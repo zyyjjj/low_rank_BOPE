@@ -174,7 +174,7 @@ def get_and_fit_outcome_model(
                 "autoencoder_num_joint_train_epochs", 500
             ),
             num_autoencoder_pretrain_epochs=util_model_kwargs.get(
-                "autoencoder_num_pretrain_epochs", 200
+                "autoencoder_num_joint_pretrain_epochs", 200
             ),
             fix_vae=True
         )
@@ -183,6 +183,7 @@ def get_and_fit_outcome_model(
             train_X=train_X,
             train_Y=train_Y,
             pca_var_threshold=util_model_kwargs.get("pca_var_threshold", 0.95),
+            standardize=util_model_kwargs.get("standardize", False),
         )
     else: 
         outcome_model = get_fitted_standard_outcome_model(
@@ -194,11 +195,12 @@ def get_and_fit_outcome_model(
 
     
 def get_and_fit_util_model(
-    train_Y: Tensor,
+    train_pref_outcomes: Tensor,
     train_comps: Tensor,
     util_model_name: str,
     outcome_model: Optional[GPyTorchModel] = None,
     bounds: Optional[Tensor] = None,
+    train_Y: Optional[Tensor] = None,
     **kwargs,
 ) -> PairwiseGP:
     util_model_kwargs = kwargs.get("util_model_kwargs", {})
@@ -207,6 +209,7 @@ def get_and_fit_util_model(
     if util_model_name == "autoencoder":
         util_model, _ = get_fitted_autoencoded_util_model(
             train_Y=train_Y,
+            train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
             autoencoder=util_model_kwargs.get("autoencoder", None),
             latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2), 
@@ -217,7 +220,7 @@ def get_and_fit_util_model(
                 "autoencoder_num_joint_train_epochs", 500
             ),
             num_autoencoder_pretrain_epochs=util_model_kwargs.get(
-                "autoencoder_num_pretrain_epochs", 200
+                "autoencoder_num_joint_pretrain_epochs", 200
             ),
             num_unlabeled_outcomes=util_model_kwargs.get("num_unlabeled_outcomes", 0),
             outcome_model=outcome_model,
@@ -226,6 +229,7 @@ def get_and_fit_util_model(
     elif util_model_name == "joint_autoencoder":
         util_model, _ = get_fitted_autoencoded_util_model(
             train_Y=train_Y,
+            train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
             autoencoder=util_model_kwargs.get("autoencoder", None),
             latent_dims=util_model_kwargs.get("autoencoder_latent_dims", 2), 
@@ -233,7 +237,7 @@ def get_and_fit_util_model(
                 "autoencoder_num_joint_train_epochs", 500
             ),
             num_autoencoder_pretrain_epochs=util_model_kwargs.get(
-                "autoencoder_num_pretrain_epochs", 200
+                "autoencoder_num_joint_pretrain_epochs", 200
             ),
             num_unlabeled_outcomes=util_model_kwargs.get("num_unlabeled_outcomes", 0),
             outcome_model=outcome_model,
@@ -243,15 +247,17 @@ def get_and_fit_util_model(
     elif util_model_name == "pca":
         util_model = get_fitted_pca_util_model(
             train_Y=train_Y,
+            train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
             pca_var_threshold=util_model_kwargs.get("pca_var_threshold", 0.95),
             num_unlabeled_outcomes=util_model_kwargs.get("num_unlabeled_outcomes", 0),
             outcome_model=outcome_model,
             bounds=bounds,
+            standardize=util_model_kwargs.get("standardize", False),
         )
     elif util_model_name == "standard":
         util_model = get_fitted_standard_util_model(
-            train_Y=train_Y,
+            train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
         )
     return util_model
@@ -287,6 +293,7 @@ def gen_pe_candidates(
 
 
 def run_single_pe_stage(
+    train_Y: Tensor,
     train_pref_outcomes: Tensor,
     train_comps: Tensor,
     outcome_model: GPyTorchModel,
@@ -303,7 +310,8 @@ def run_single_pe_stage(
         util_model_name = pe_config_info["util_model_name"]
         util_model_kwargs = pe_config_info.get("util_model_kwargs", {})
         util_model = get_and_fit_util_model(
-            train_Y=train_pref_outcomes,
+            train_Y=train_Y,
+            train_pref_outcomes=train_pref_outcomes,
             train_comps=train_comps,
             util_model_name=util_model_name,
             outcome_model=outcome_model,
@@ -349,7 +357,8 @@ def run_single_pe_stage(
         train_pref_outcomes = torch.cat((train_pref_outcomes, cand_Y))
 
     util_model = get_and_fit_util_model(
-        train_Y=train_pref_outcomes,
+        train_Y=train_Y,
+        train_pref_outcomes=train_pref_outcomes,
         train_comps=train_comps,
         util_model_name=util_model_name,
         outcome_model=outcome_model,
@@ -439,8 +448,9 @@ def run_single_bo_stage(
         # update util model with updated outcome model if retrain_util_model=True
         if bo_gen_kwargs.get("retrain_util_model", False):
             util_model = get_and_fit_util_model(
-                train_Y=train_pref_outcomes,  # labeled train_pref_outcomes data is not updated in BO stage
+                train_pref_outcomes=train_pref_outcomes,  # labeled train_pref_outcomes data is not updated in BO stage
                 train_comps=train_comps,
+                train_Y=train_outcomes,
                 util_model_name=pe_config_info["util_model_name"],
                 outcome_model=outcome_model,  # updated outcome model (only useful if adding sampled data from outcome model)
                 bounds=problem.bounds,
