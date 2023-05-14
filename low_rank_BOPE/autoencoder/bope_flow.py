@@ -292,6 +292,7 @@ def run_single_pe_stage(
     outcome_model: GPyTorchModel,
     pe_config_info: Dict[str, Any],
     num_pref_iters: int,
+    every_n_comps: int,
     problem: MultiObjectiveTestProblem,
     util_func: torch.nn.Module,
     autoencoder: Optional[Autoencoder] = None,
@@ -311,18 +312,19 @@ def run_single_pe_stage(
             util_model_kwargs=util_model_kwargs, 
         )
 
-        # identified candidate that max util
-        best_candidates = get_candidate_maximize_util(
-            pref_model=util_model,
-            outcome_model=outcome_model,
-            bounds=problem.bounds,
-        )
+        if i % every_n_comps == 0:
+            # identified candidate that max util
+            best_candidates = get_candidate_maximize_util(
+                pref_model=util_model,
+                outcome_model=outcome_model,
+                bounds=problem.bounds,
+            )
 
-        max_val_identified = util_func(
-            problem.evaluate_true(best_candidates.to(torch.double))
-        ).item()  # best obtained util
-        max_val_list.append(max_val_identified)
-        logger.info(f"{i}th iter: max val identified = {max_val_identified}")
+            max_val_identified = util_func(
+                problem.evaluate_true(best_candidates.to(torch.double))
+            ).item()  # best obtained util
+            max_val_list.append(max_val_identified)
+            logger.info(f"{i}th iter: max val identified = {max_val_identified}")
 
         # gen PE candidates
         cand_X, cand_Y = gen_pe_candidates(
@@ -370,12 +372,14 @@ def run_single_bo_stage(
     pref_obj: LearnedObjective,
     pe_config_info: Dict[str, Any],
     num_bo_iters: int,
+    bo_batch_size: int,
     problem: MultiObjectiveTestProblem,
     util_func: torch.nn.Module,
+    util_list: List[List[str]],
     autoencoder: Optional[Autoencoder] = None,
 ) -> Union[List, Tensor, Tensor, GPyTorchModel, Any]:
     bo_gen_kwargs = pe_config_info.get("bo_gen_kwargs", {})
-    util_list = list(util_func(problem.evaluate_true(train_X)).detach().numpy())
+    # util_list = list(util_func(problem.evaluate_true(train_X)).detach().numpy())
 
     logger.info(f"Running BO, current length of util val = {len(util_list)}")
 
@@ -396,7 +400,7 @@ def run_single_bo_stage(
         # optimize the acquisition function
         candidates, acqf_val = optimize_acqf(
             acq_function=acq_func,
-            q=1,
+            q=bo_batch_size,
             bounds=problem.bounds,
             num_restarts=NUM_RESTARTS,
             raw_samples=RAW_SAMPLES,
@@ -415,10 +419,12 @@ def run_single_bo_stage(
 
         true_util = util_func(
             problem.evaluate_true(candidates.to(torch.double))
-        ).item()  # best obtained util
+        ).squeeze(-1).tolist()  # best obtained util
         util_list.append(true_util)
+        logger.debug(f"util_list = {util_list}")
+        max_util_so_far = max([max(sublist) for sublist in util_list])
         logger.info(
-            f"Finished {i}th BO iteration with best obtained util val = {max(util_list)}"
+            f"Finished {i}th BO iteration with best obtained util val = {max_util_so_far}"
         )
 
         outcome_model = get_and_fit_outcome_model(

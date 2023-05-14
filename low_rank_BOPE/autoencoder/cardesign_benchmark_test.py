@@ -57,7 +57,9 @@ def run_cardesign_benchmark(
     strategies_args: Dict[str, Any],
     num_sobol_designs: int = 32,
     num_bo_iters: int = 2,
+    bo_batch_size: int = 1,
     num_pref_iters: int = 2,
+    every_n_comps: int = 2,
     num_stages: int = 1,
 ) -> Dict:
     problem, util_func = construct_problem(problem_name)
@@ -97,7 +99,7 @@ def run_cardesign_benchmark(
 
 
     pe_stage_result_list = []
-    bo_stage_result_list = []
+    bo_stage_result_list = [train_util_val.squeeze(-1).tolist()]
 
     for istage in range(num_stages):
 
@@ -146,7 +148,7 @@ def run_cardesign_benchmark(
         else:
             raise NotImplementedError(f"{strategies_args['util_model_name']} is not supported")
 
-        logger.info(f"run {istage}th PE stage ...")
+        logger.info(f"======= run {istage}th PE stage ... =======")
         # run PE stage
         # train_pref_outcomes --- sampled from posterior (not the true outcome)
         (
@@ -162,6 +164,7 @@ def run_cardesign_benchmark(
             outcome_model=outcome_model,
             pe_config_info=pe_config_info,
             num_pref_iters=num_pref_iters,
+            every_n_comps=every_n_comps,
             problem=problem,
             util_func=util_func,
             autoencoder=autoencoder,
@@ -173,9 +176,9 @@ def run_cardesign_benchmark(
         logger.debug(f"outcome model num outputs: {outcome_model.num_outputs}")
         logger.debug(f"autoencoder after {istage}th PE stage: {autoencoder}")
 
-        logger.info(f"run {istage}th BO stage ...")
+        logger.info(f"======= run {istage}th BO stage ... =======")
         # run BO stage
-        util_list, train_X, train_Y, outcome_model, autoencoder = run_single_bo_stage(
+        bo_stage_result_list, train_X, train_Y, outcome_model, autoencoder = run_single_bo_stage(
             train_X=train_X,
             train_outcomes=train_Y,
             train_comps=train_comps,  # pass PE data to BO stage for util retraining
@@ -184,13 +187,15 @@ def run_cardesign_benchmark(
             pref_obj=pref_obj,
             pe_config_info=pe_config_info,
             num_bo_iters=num_bo_iters,
+            bo_batch_size=bo_batch_size,
             problem=problem,
             util_func=util_func,
+            util_list=bo_stage_result_list,
             autoencoder=autoencoder,
         )
-        bo_stage_result_list = (
-            util_list  # util_list is updated within run_single_bo_stage
-        )
+        # bo_stage_result_list = (
+        #     util_list  # util_list is updated within run_single_bo_stage
+        # )
 
     return {
         "PE": pe_stage_result_list,
@@ -203,7 +208,9 @@ def run_cardesign_benchmark_reps(
     strategies: Dict[str, Dict],
     num_sobol_designs: int = 32,
     num_bo_iters: int = 25,
+    bo_batch_size: int = 1,
     num_pref_iters: int = 25,
+    every_n_comps: int = 2,
     num_stages: int = 3,
     reps: int = 5,
 ) -> Dict[str, List[Dict]]:
@@ -217,7 +224,9 @@ def run_cardesign_benchmark_reps(
                     strategy_name=strategy,
                     num_sobol_designs=num_sobol_designs,
                     num_bo_iters=num_bo_iters,
+                    bo_batch_size=bo_batch_size,
                     num_pref_iters=num_pref_iters,
+                    every_n_comps=every_n_comps,
                     num_stages=num_stages,
                     strategies_args=strategies_args,
                     return_on_failure=[{"PE": "Failed"}],
