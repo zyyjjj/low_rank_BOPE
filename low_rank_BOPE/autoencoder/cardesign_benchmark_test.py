@@ -103,6 +103,7 @@ def run_cardesign_benchmark(
         if strategies_args["util_model_name"] == "joint_autoencoder":
             logger.info(f"======= Jointly train VAE, outcome, util models in {istage}th stage ... =======")
             logger.debug(f"train_X: {train_X.shape}, train_Y: {train_Y.shape}, train_comps: {train_comps.shape}")
+            logger.debug(f"train X: {train_X}")
             # training VAE jointly w outcome and util models
             outcome_model, util_model, autoencoder = jointly_optimize_models(
                 train_X=train_X,
@@ -119,7 +120,7 @@ def run_cardesign_benchmark(
                 train_outcome_model=True,
                 train_util_model=True,
             )
-            logger.debug(f"After joint training w VAE, outcome model inputs and targets shape: {outcome_model.inputs.shape}, {outcome_model.targets.shape}")
+            # logger.debug(f"After joint training w VAE, outcome model inputs and targets shape: {outcome_model.train_inputs.shape}, {outcome_model.train_targets.shape}")
             logger.debug(f"After joint training w VAE, util model input and output shape: {util_model.unconsolidated_datapoints.shape}, {util_model.unconsolidated_comparisons.shape}")
         elif strategies_args["util_model_name"] == "autoencoder":
             logger.info(f"======= Train VAE, outcome, util models separately in {istage}th stage ... =======")

@@ -159,11 +159,16 @@ def initialize_outcome_model(
     train_X: Tensor,
     train_Y: Tensor,
     latent_dims: int
-) -> Tuple[HighDimGP, Likelihood]:
-    outcome_model = HighDimGP(
+) -> Tuple[SingleTaskGP, Likelihood]:
+    # outcome_model = HighDimGP(
+    #     train_X=train_X,
+    #     train_Y=train_Y,
+    #     autoencoder=None,
+    #     outcome_transform=Standardize(latent_dims),
+    # )
+    outcome_model = SingleTaskGP(
         train_X=train_X,
         train_Y=train_Y,
-        autoencoder=None,
         outcome_transform=Standardize(latent_dims),
     )
     mll = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
@@ -224,7 +229,7 @@ def get_fitted_autoencoded_outcome_model(
     # num_unlabeled_outcomes: int,
     autoencoder: Optional[Autoencoder] = None,
     fix_vae: bool = False
-) -> Tuple[HighDimGP, Autoencoder]:
+) -> Tuple[SingleTaskGP, Autoencoder]:
     
     # TODO: still want this? 
     # not very reasonable to gen posterior samples from the outcome model yet to be trained
@@ -550,7 +555,7 @@ def jointly_optimize_models(
     train_X: Optional[Tensor] = None,
     train_pref_outcomes: Optional[Tensor] = None,
     train_comps: Optional[Tensor] = None,
-    outcome_model: Optional[HighDimGP] = None,
+    outcome_model: Optional[SingleTaskGP] = None,
     mll_outcome: Optional[ExactMarginalLogLikelihood] = None,
     util_model: Optional[HighDimPairwiseGP] = None,
     mll_util: Optional[PairwiseLaplaceMarginalLogLikelihood] = None,
@@ -595,9 +600,24 @@ def jointly_optimize_models(
                 )
 
         if train_outcome_model:    
-            outcome_model.inputs = train_X
-            outcome_model.targets = train_Y_latent
-            outcome_loss = -mll_outcome(outcome_model(train_X), train_Y_latent)
+            # outcome_model.inputs = train_X
+            # outcome_model.targets = train_Y_latent
+
+            outcome_model.set_train_data(
+                inputs=train_X, targets=train_Y_latent, strict=False
+            )
+            logger.debug(f"outcome_model.training: {outcome_model.training}")
+            logger.debug(f"train_Y_latent shape: {train_Y_latent.shape}")
+            # logger.debug(f"mll_outcome: {mll_outcome.__dict__}")
+            logger.debug(f"train_X shape: {train_X.shape}")
+            # logger.debug(f"outcome model inputs: {outcome_model.inputs}")
+            outcome_pred = outcome_model(train_X)
+            logger.debug(f"outcome_pred: {outcome_pred}")
+            logger.debug(f"model.train_targets: {outcome_model.train_targets.shape}")
+            outcome_loss = -mll_outcome(
+                outcome_pred, 
+                torch.transpose(outcome_model.train_targets, -2, -1)
+            )
             loss += torch.sum(outcome_loss)
 
             if epoch % 100 == 0:
@@ -630,7 +650,7 @@ def jointly_optimize_models(
         autoencoder.eval()
     if outcome_model is not None:
         outcome_model.eval()
-        outcome_model.set_autoencoder(autoencoder=autoencoder)
+        # outcome_model.set_autoencoder(autoencoder=autoencoder)
     if util_model is not None:
         util_model.eval()
         util_model.set_autoencoder(autoencoder=autoencoder)
