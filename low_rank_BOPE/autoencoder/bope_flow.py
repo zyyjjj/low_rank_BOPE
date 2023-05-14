@@ -378,8 +378,8 @@ def run_single_bo_stage(
     util_list: List[List[str]],
     autoencoder: Optional[Autoencoder] = None,
 ) -> Union[List, Tensor, Tensor, GPyTorchModel, Any]:
+    
     bo_gen_kwargs = pe_config_info.get("bo_gen_kwargs", {})
-    # util_list = list(util_func(problem.evaluate_true(train_X)).detach().numpy())
 
     logger.info(f"Running BO, current length of util val = {len(util_list)}")
 
