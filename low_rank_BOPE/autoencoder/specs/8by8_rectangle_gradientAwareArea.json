@@ -6,10 +6,38 @@
     "num_pref_iters": 8,
     "every_n_comps": 2,
     "num_stages": 10, 
-    "reps": 1,
+    "reps": 20,
     "strategies": {
-        "joint-autoencoder-eubo-2-200-500": {
+        "joint-autoencoder-eubo-2-500-500": {
             "util_model_name": "joint_autoencoder",
+            "util_model_kwargs": {
+                "autoencoder_latent_dims": 2,
+                "num_unlabeled_outcomes": 0,
+                "autoencoder_num_joint_train_epochs": 500,
+                "autoencoder_num_joint_pretrain_epochs": 0,
+                "autoencoder_num_individual_pretrain_epochs": 500
+            },
+            "pe_gen_strategy": "eubo",
+            "bo_gen_kwargs": {
+                "retrain_util_model": false
+            }
+        },
+        "joint-autoencoder-eubo-15-500-500": {
+            "util_model_name": "joint_autoencoder",
+            "util_model_kwargs": {
+                "autoencoder_latent_dims": 15,
+                "num_unlabeled_outcomes": 0,
+                "autoencoder_num_joint_train_epochs": 500,
+                "autoencoder_num_joint_pretrain_epochs": 0,
+                "autoencoder_num_individual_pretrain_epochs": 500
+            },
+            "pe_gen_strategy": "eubo",
+            "bo_gen_kwargs": {
+                "retrain_util_model": false
+            }
+        },
+        "autoencoder-eubo-2-500-500": {
+            "util_model_name": "autoencoder",
             "util_model_kwargs": {
                 "autoencoder_latent_dims": 2,
                 "num_unlabeled_outcomes": 0,
@@ -22,24 +50,10 @@
                 "retrain_util_model": false
             }
         },
-        "autoencoder-eubo-2-200-500": {
+        "autoencoder-eubo-15-500-500": {
             "util_model_name": "autoencoder",
             "util_model_kwargs": {
-                "autoencoder_latent_dims": 2,
-                "num_unlabeled_outcomes": 0,
-                "autoencoder_num_joint_train_epochs": 500,
-                "autoencoder_num_pretrain_epochs": 0,
-                "autoencoder_num_individual_pretrain_epochs": 200
-            },
-            "pe_gen_strategy": "eubo",
-            "bo_gen_kwargs": {
-                "retrain_util_model": false
-            }
-        },
-        "autoencoder-eubo-5-500-500": {
-            "util_model_name": "autoencoder",
-            "util_model_kwargs": {
-                "autoencoder_latent_dims": 5,
+                "autoencoder_latent_dims": 15,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
                 "autoencoder_num_joint_pretrain_epochs": 0,
@@ -54,18 +68,12 @@
             "util_model_name": "pca",
             "util_model_kwargs": {
                 "num_unlabeled_outcomes": 0,
-                "pca_var_threshold": 0.95
+                "pca_var_threshold": 0.95,
+                "standardize": false
             },
             "pe_gen_strategy": "eubo",
             "bo_gen_kwargs": {
-                "retrain_util_model": false
-            }
-        },
-        "eubo": {
-            "util_model_name": "standard",
-            "pe_gen_strategy": "eubo",
-            "bo_gen_kwargs": {
-                "retrain_util_model": false
+                "retrain_util_model": true
             }
         },
         "random-f": {

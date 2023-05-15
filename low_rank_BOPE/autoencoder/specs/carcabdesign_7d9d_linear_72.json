@@ -1,5 +1,5 @@
 {
-    "problem_name": "carcabdesign_7d9d_piecewiselinear_72",
+    "problem_name": "carcabdesign_7d9d_linear_72",
     "num_sobol_designs": 32,
     "num_bo_iters": 1,
     "bo_batch_size": 8, 

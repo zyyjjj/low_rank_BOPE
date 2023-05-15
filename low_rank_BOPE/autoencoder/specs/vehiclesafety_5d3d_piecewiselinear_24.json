@@ -1,5 +1,5 @@
 {
-    "problem_name": "carcabdesign_7d9d_piecewiselinear_72",
+    "problem_name": "vehiclesafety_5d3d_piecewiselinear_24",
     "num_sobol_designs": 32,
     "num_bo_iters": 1,
     "bo_batch_size": 8, 
@@ -8,10 +8,10 @@
     "num_stages": 10, 
     "reps": 1,
     "strategies": {
-        "joint-autoencoder-eubo-2-500-500": {
+        "joint-autoencoder-eubo-3-500-500": {
             "util_model_name": "joint_autoencoder",
             "util_model_kwargs": {
-                "autoencoder_latent_dims": 2,
+                "autoencoder_latent_dims": 3,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
                 "autoencoder_num_joint_pretrain_epochs": 0,
@@ -22,42 +22,14 @@
                 "retrain_util_model": false
             }
         },
-        "joint-autoencoder-eubo-4-500-500": {
-            "util_model_name": "joint_autoencoder",
-            "util_model_kwargs": {
-                "autoencoder_latent_dims": 4,
-                "num_unlabeled_outcomes": 0,
-                "autoencoder_num_joint_train_epochs": 500,
-                "autoencoder_num_joint_pretrain_epochs": 0,
-                "autoencoder_num_individual_pretrain_epochs": 500
-            },
-            "pe_gen_strategy": "eubo",
-            "bo_gen_kwargs": {
-                "retrain_util_model": false
-            }
-        },
-        "autoencoder-eubo-2-500-500": {
+        "autoencoder-eubo-3-500-500": {
             "util_model_name": "autoencoder",
             "util_model_kwargs": {
-                "autoencoder_latent_dims": 2,
+                "autoencoder_latent_dims": 3,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
                 "autoencoder_num_joint_pretrain_epochs": 0,
                 "autoencoder_num_individual_pretrain_epochs": 200
-            },
-            "pe_gen_strategy": "eubo",
-            "bo_gen_kwargs": {
-                "retrain_util_model": false
-            }
-        },
-        "autoencoder-eubo-4-500-500": {
-            "util_model_name": "autoencoder",
-            "util_model_kwargs": {
-                "autoencoder_latent_dims": 4,
-                "num_unlabeled_outcomes": 0,
-                "autoencoder_num_joint_train_epochs": 500,
-                "autoencoder_num_joint_pretrain_epochs": 0,
-                "autoencoder_num_individual_pretrain_epochs": 500
             },
             "pe_gen_strategy": "eubo",
             "bo_gen_kwargs": {

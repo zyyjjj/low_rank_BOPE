@@ -1,12 +1,12 @@
 {
-    "problem_name": "carcabdesign_7d9d_piecewiselinear_72",
-    "num_sobol_designs": 32,
+    "problem_name": "16by16_rectangle_gradientAwareArea",
+    "num_sobol_designs": 64,
     "num_bo_iters": 1,
-    "bo_batch_size": 8, 
-    "num_pref_iters": 8,
+    "bo_batch_size": 16, 
+    "num_pref_iters": 16,
     "every_n_comps": 2,
     "num_stages": 10, 
-    "reps": 1,
+    "reps": 20,
     "strategies": {
         "joint-autoencoder-eubo-2-500-500": {
             "util_model_name": "joint_autoencoder",
@@ -22,10 +22,10 @@
                 "retrain_util_model": false
             }
         },
-        "joint-autoencoder-eubo-4-500-500": {
+        "joint-autoencoder-eubo-19-500-500": {
             "util_model_name": "joint_autoencoder",
             "util_model_kwargs": {
-                "autoencoder_latent_dims": 4,
+                "autoencoder_latent_dims": 19,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
                 "autoencoder_num_joint_pretrain_epochs": 0,
@@ -50,10 +50,10 @@
                 "retrain_util_model": false
             }
         },
-        "autoencoder-eubo-4-500-500": {
+        "autoencoder-eubo-19-500-500": {
             "util_model_name": "autoencoder",
             "util_model_kwargs": {
-                "autoencoder_latent_dims": 4,
+                "autoencoder_latent_dims": 19,
                 "num_unlabeled_outcomes": 0,
                 "autoencoder_num_joint_train_epochs": 500,
                 "autoencoder_num_joint_pretrain_epochs": 0,
