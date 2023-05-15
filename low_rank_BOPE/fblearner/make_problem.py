@@ -7,7 +7,7 @@ from low_rank_BOPE.test_problems.car_problems import problem_setup_augmented
 from low_rank_BOPE.test_problems.shapes import GradientAwareAreaUtil, Image
 from low_rank_BOPE.test_problems.robot.robot import SpotMiniMiniProblem, RobotUtil
 from low_rank_BOPE.test_problems.inventory_control import Inventory, \
-    InventoryUtil
+    InventoryUtil, MultipleInventories, MultipleInventoriesUtil
 from low_rank_BOPE.test_problems.synthetic_problem import (
     LinearUtil, PiecewiseLinear,\
     generate_principal_axes, make_controlled_coeffs, make_problem)
@@ -73,6 +73,30 @@ def make_problem_and_util_func(
             order_cost_one_time=options.get("order_cost_one_time", 1.0),
             order_cost_per_unit=options.get("order_cost_per_unit", 0.1),
         ) 
+    
+    elif problem_name == "multiinventory_50_4": 
+        problem_list = []
+        util_func_list = []
+        for k, setup in options.items():
+            problem_list.append(
+                Inventory(
+                    duration = 50, 
+                    init_inventory = setup["init_inventory"],
+                    x_baseline = setup["x_baseline"],
+                    x_scaling = setup["x_scaling"],
+                    params = setup["simulation_params"]
+                )
+            )
+            util_func_list.append(
+                InventoryUtil(
+                    stockout_penalty_per_unit=setup["stockout_penalty_per_unit"],
+                    holding_cost_per_unit=setup["holding_cost_per_unit"],
+                    order_cost_one_time=setup["order_cost_one_time"],
+                    order_cost_per_unit=setup["order_cost_per_unit"],
+                )
+            )
+        problem = MultipleInventories(problem_list)
+        util_func = MultipleInventoriesUtil(50, util_func_list)
     
     elif problem_name.startswith("PTS"):
 

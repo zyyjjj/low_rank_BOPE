@@ -52,6 +52,80 @@ PROBLEM_SETUPS = {
             'c' : 0.1 # doesn't matter for us
         }
     },
+    "multiinventory_50_4": {
+        "product_0": {
+            "init_inventory": 50,
+            "x_baseline": 50,
+            "x_scaling": 50,
+            "stockout_penalty_per_unit": 0.1,
+            "holding_cost_per_unit": 0.1,
+            "order_cost_one_time": 0.0,
+            "order_cost_per_unit": 0.1,
+            "simulation_params": {
+                'demand_mean' : 5, 
+                'demand_std' : 2,
+                'lead_time' : 10, # tau in the slides
+                'stockout_penalty' : 0.1, # doesn't matter for us
+                'holding_cost' : 0.01, # doesn't matter for us
+                'K' : 1, # doesn't matter for us 
+                'c' : 0.1 # doesn't matter for us
+            }
+        },
+        "product_1": {
+            "init_inventory": 50,
+            "x_baseline": 50,
+            "x_scaling": 50,
+            "stockout_penalty_per_unit": 0.2,
+            "holding_cost_per_unit": 0.2,
+            "order_cost_one_time": 0.0,
+            "order_cost_per_unit": 0.2,
+            "simulation_params": {
+                'demand_mean' : 5, 
+                'demand_std' : 2,
+                'lead_time' : 10, # tau in the slides
+                'stockout_penalty' : 0.1, # doesn't matter for us
+                'holding_cost' : 0.01, # doesn't matter for us
+                'K' : 1, # doesn't matter for us 
+                'c' : 0.1 # doesn't matter for us
+            }
+        },
+        "product_2": {
+            "init_inventory": 25,
+            "x_baseline": 25,
+            "x_scaling": 25,
+            "stockout_penalty_per_unit": 0.1,
+            "holding_cost_per_unit": 0.1,
+            "order_cost_one_time": 0.0,
+            "order_cost_per_unit": 0.1,
+            "simulation_params": {
+                'demand_mean' : 3, 
+                'demand_std' : 1,
+                'lead_time' : 10, # tau in the slides
+                'stockout_penalty' : 0.1, # doesn't matter for us
+                'holding_cost' : 0.01, # doesn't matter for us
+                'K' : 1, # doesn't matter for us 
+                'c' : 0.1 # doesn't matter for us
+            }
+        },
+        "product_3": {
+            "init_inventory": 25,
+            "x_baseline": 25,
+            "x_scaling": 25,
+            "stockout_penalty_per_unit": 0.2,
+            "holding_cost_per_unit": 0.2,
+            "order_cost_one_time": 0.0,
+            "order_cost_per_unit": 0.2,
+            "simulation_params": {
+                'demand_mean' : 3, 
+                'demand_std' : 1,
+                'lead_time' : 10, # tau in the slides
+                'stockout_penalty' : 0.1, # doesn't matter for us
+                'holding_cost' : 0.01, # doesn't matter for us
+                'K' : 1, # doesn't matter for us 
+                'c' : 0.1 # doesn't matter for us
+            }
+        },
+    },
     "PTS=6_input=3_outcome=45_latent=3_alpha=0.5_pwlinear": {
         "matrix_id": 6,
         "input_dim": 3,
