@@ -753,6 +753,6 @@ def fit_pca(
     )
     num_axes = len(exceed_thres) - sum(exceed_thres) + 1
 
-    pca_axes = torch.tensor(torch.transpose(V[:, : num_axes], -2, -1), dtype = torch.double)
+    pca_axes = torch.transpose(V[:, : num_axes], -2, -1).to(torch.double)
 
     return pca_axes
