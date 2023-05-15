@@ -164,7 +164,8 @@ class RetrainingBopeExperiment:
             self.true_opt = None
 
         # load partial experiment data if it exists
-        self.load_experiment_data()
+        if self.save_results:
+            self.load_experiment_data()
 
 
     def generate_random_experiment_data(self, n: int, compute_util: bool = True):
