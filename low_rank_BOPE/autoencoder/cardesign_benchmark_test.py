@@ -221,6 +221,8 @@ def run_cardesign_benchmark(
         mll_outcome = ExactMarginalLogLikelihood(outcome_model.likelihood, outcome_model)
 
     return {
+        "problem_name": problem_name,
+        "strategy_name": strategy_name,
         "PE": pe_stage_result_list,
         "BO": bo_stage_result_list,
     }
@@ -241,6 +243,7 @@ def run_cardesign_benchmark_reps(
 
     for _ in range(reps):
         for strategy, strategies_args in strategies.items():
+            print(f"~~~~~~~~~~~~ Run {strategy} ~~~~~~~~~~~~")
             res_all[strategy].append(
                 run_cardesign_benchmark(
                     problem_name=problem_name,
@@ -252,7 +255,7 @@ def run_cardesign_benchmark_reps(
                     every_n_comps=every_n_comps,
                     num_stages=num_stages,
                     strategies_args=strategies_args,
-                    return_on_failure=[{"PE": "Failed"}],
+                    # return_on_failure=[{"PE": "Failed"}],
                 )
             )
     return res_all
