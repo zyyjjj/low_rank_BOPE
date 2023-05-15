@@ -113,59 +113,11 @@ def train_autoencoder(
 ##############################################################################################################
 # Outcome model class and fitting outcome models
 
-class HighDimGP(SingleTaskGP):
-    """SingleTask GP for high-dim outcomes. 
-    A thin wrapper over SingleTaskGP to take a trained auto-encoder to map 
-    high-dim outcomes to a low-dim outcome spaces and fit independent GPs 
-    on low-dimensional outcome representations.
-    """
-
-    def __init__(
-        self,
-        train_X: Tensor,
-        train_Y: Tensor,
-        autoencoder: Optional[nn.Module] = None,
-        likelihood: Optional[Likelihood] = None,
-        covar_module: Optional[Module] = None,
-        outcome_transform: Optional[OutcomeTransform] = None,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            train_X=train_X,
-            train_Y=train_Y,
-            likelihood=likelihood,
-            covar_module=covar_module,
-            outcome_transform=outcome_transform,
-        )
-        # avoid de-dup so hard-coded this to be 0
-        self._consolidate_rtol = 0.0
-        self._consolidate_atol = 0.0
-
-        # a place-holder in the training stage
-        # will load the trained autoencoder for eval
-        self.autoencoder = None
-        if autoencoder is not None:
-            self.set_autoencoder(autoencoder)
-
-    def set_autoencoder(self, autoencoder: nn.Module):
-        self.autoencoder = deepcopy(autoencoder)
-        self.autoencoder.eval()
-
-    def forward(self, x: Tensor) -> MultivariateNormal:
-        return super().forward(x)
-        
-
 def initialize_outcome_model(
     train_X: Tensor,
     train_Y: Tensor,
     latent_dims: int
 ) -> Tuple[SingleTaskGP, Likelihood]:
-    # outcome_model = HighDimGP(
-    #     train_X=train_X,
-    #     train_Y=train_Y,
-    #     autoencoder=None,
-    #     outcome_transform=Standardize(latent_dims),
-    # )
     outcome_model = SingleTaskGP(
         train_X=train_X,
         train_Y=train_Y,
@@ -600,23 +552,19 @@ def jointly_optimize_models(
                 )
 
         if train_outcome_model:    
-            # outcome_model.inputs = train_X
-            # outcome_model.targets = train_Y_latent
-
+            
             outcome_model.set_train_data(
-                inputs=train_X, targets=train_Y_latent, strict=False
+                inputs=train_X, 
+                targets=torch.transpose(train_Y_latent, -2, -1), # this is transpose(train_Y_latent)
+                strict=False
             )
-            logger.debug(f"outcome_model.training: {outcome_model.training}")
             logger.debug(f"train_Y_latent shape: {train_Y_latent.shape}")
-            # logger.debug(f"mll_outcome: {mll_outcome.__dict__}")
             logger.debug(f"train_X shape: {train_X.shape}")
-            # logger.debug(f"outcome model inputs: {outcome_model.inputs}")
             outcome_pred = outcome_model(train_X)
             logger.debug(f"outcome_pred: {outcome_pred}")
-            logger.debug(f"model.train_targets: {outcome_model.train_targets.shape}")
             outcome_loss = -mll_outcome(
                 outcome_pred, 
-                torch.transpose(outcome_model.train_targets, -2, -1)
+                outcome_model.train_targets # this is transpose(train_Y_latent)
             )
             loss += torch.sum(outcome_loss)
 

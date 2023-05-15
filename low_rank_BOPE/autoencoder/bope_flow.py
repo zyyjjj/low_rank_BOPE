@@ -390,7 +390,7 @@ def run_single_bo_stage(
     
     bo_gen_kwargs = pe_config_info.get("bo_gen_kwargs", {})
 
-    logger.info(f"Running BO, current length of util val = {len(util_list)}")
+    logger.info(f"Running BO, length of current nested list of batch util vals = {len(util_list)}")
 
     for i in range(num_bo_iters):
 

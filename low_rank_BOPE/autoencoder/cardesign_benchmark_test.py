@@ -120,7 +120,7 @@ def run_cardesign_benchmark(
                 train_outcome_model=True,
                 train_util_model=True,
             )
-            # logger.debug(f"After joint training w VAE, outcome model inputs and targets shape: {outcome_model.train_inputs.shape}, {outcome_model.train_targets.shape}")
+            logger.debug(f"After joint training w VAE, outcome_model.train_targets.shape: {outcome_model.train_targets.shape}")
             logger.debug(f"After joint training w VAE, util model input and output shape: {util_model.unconsolidated_datapoints.shape}, {util_model.unconsolidated_comparisons.shape}")
         elif strategies_args["util_model_name"] == "autoencoder":
             logger.info(f"======= Train VAE, outcome, util models separately in {istage}th stage ... =======")
@@ -134,6 +134,7 @@ def run_cardesign_benchmark(
             outcome_model = get_fitted_standard_outcome_model(
                 train_X=train_X, train_Y=train_Y_latent,
             )
+            logger.debug(f"outcome_model.train_targets.shape: {outcome_model.train_targets.shape}")
             train_pref_outcomes_latent = autoencoder.encoder(train_pref_outcomes).detach()
             util_model = get_fitted_standard_util_model(
                 train_pref_outcomes = train_pref_outcomes_latent,
