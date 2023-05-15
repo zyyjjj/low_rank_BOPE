@@ -203,7 +203,7 @@ EXPERIMENT_SETUPS = {
         "pca_var_threshold": 0.9,
         "n_BO_iters": 1,
         "BO_batch_size": 16,
-        "n_meta_iters": 5,
+        "n_meta_iters": 10,
         "standardize": False,
     },
     "robot_3_100_1": {
@@ -225,7 +225,18 @@ EXPERIMENT_SETUPS = {
         "pca_var_threshold": 0.9,
         "n_BO_iters": 1,
         "BO_batch_size": 16,
-        "n_meta_iters": 5,
+        "n_meta_iters": 10,
+        "standardize": False
+    },
+    "multiinventory_50_4": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 8,
+        "initial_experimentation_batch": 64,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 16,
+        "n_meta_iters": 10,
         "standardize": False
     },
     "PTS=6_input=3_outcome=45_latent=3_alpha=0.5_pwlinear": {
