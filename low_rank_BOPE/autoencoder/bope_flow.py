@@ -32,7 +32,8 @@ from torch import Tensor
 # logger: Logger = get_logger(__name__)
 logger = logging.getLogger("botorch")
 
-MC_SAMPLES = 256
+OUTCOME_MC_SAMPLES = 256
+PREF_MC_SAMPLES = 4
 NUM_RESTARTS = 10
 RAW_SAMPLES = 256
 
@@ -133,9 +134,12 @@ def gen_random_f_candidates(
 def get_candidate_maximize_util(
     pref_model: PairwiseGP, outcome_model: GPyTorchModel, bounds: Tensor
 ) -> Tensor:
-    sampler = SobolQMCNormalSampler(MC_SAMPLES)  # check default val
-    # use default sampler in the LearnedObjective
-    pref_obj = LearnedObjective(pref_model=pref_model)
+    sampler = SobolQMCNormalSampler(OUTCOME_MC_SAMPLES) 
+    # use the same number of samples as in RetrainingBopeExperiment
+    pref_obj = LearnedObjective(
+        pref_model=pref_model,
+        sampler=SobolQMCNormalSampler(1)
+    )
 
     acq_func = qSimpleRegret(
         model=outcome_model,
@@ -366,9 +370,9 @@ def run_single_pe_stage(
         autoencoder=autoencoder,
         util_model_kwargs=util_model_kwargs
     )
-    # Use DEFAULT sampler to speed things up
-    # TODO: this is different from what we do, to revisit
-    pref_obj = LearnedObjective(pref_model=util_model)
+    # use the same sampler size as in RetrainingBopeExperiment
+    sampler = SobolQMCNormalSampler(PREF_MC_SAMPLES)
+    pref_obj = LearnedObjective(pref_model=util_model, sampler=sampler)
     return max_val_list, train_pref_outcomes, train_comps, util_model, pref_obj, autoencoder
 
 
@@ -401,7 +405,7 @@ def run_single_bo_stage(
             model=outcome_model,
             objective=pref_obj,  # should be learned utility objective
             X_baseline=train_X,
-            sampler=SobolQMCNormalSampler(MC_SAMPLES),
+            sampler=SobolQMCNormalSampler(OUTCOME_MC_SAMPLES),
             prune_baseline=True,
             cache_root=False,
         )
