@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import torch
 from torch import Tensor
@@ -194,3 +195,42 @@ class InventoryUtil(torch.nn.Module):
                 cost += self.order_cost_one_time + self.order_cost_per_unit * (y[t]-y[t-1])
         
         return -cost
+    
+
+# Wrappers for multiple products
+
+class MultipleInventories(SyntheticTestFunction):
+    def __init__(
+        self,
+        problem_list: List[Inventory]
+    ):
+        self.dim = 2 * len(problem_list)
+        self._bounds = torch.tensor([[0.,1.]]*self.dim)
+        super().__init__()
+        self.outcome_dim = sum([problem.outcome_dim for problem in problem_list])
+        self.problem_list = problem_list
+    
+    def evaluate_true(self, X:Tensor):
+        Y = []
+        for problem in self.problem_list:
+            Y.append(problem.evaluate_true(X))
+        
+        return torch.hstack(Y)
+    
+
+class MultipleInventoriesUtil(torch.nn.Module):
+    def __init__(
+        self,
+        individual_duration: int,
+        util_func_list: List[InventoryUtil],
+    ):
+        super().__init__()
+        self.util_func_list = util_func_list
+        self.individual_duration = individual_duration
+    
+    def forward(self, Y: Tensor):
+        neg_costs = []
+        for i, util_func in enumerate(self.util_func_list):
+            neg_costs.append(util_func(Y[:, i*self.individual_duration:(i+1)*self.individual_duration]))
+        
+        return torch.sum(torch.hstack(neg_costs), dim=1, keepdim=True)
