@@ -566,8 +566,9 @@ def jointly_optimize_models(
                 outcome_pred, 
                 outcome_model.train_targets # this is transpose(train_Y_latent)
             )
-            loss += torch.sum(outcome_loss)
-
+            outcome_loss_ = outcome_loss.sum() / train_Y_latent.shape[-1]
+            loss += outcome_loss_ 
+            
             if epoch % 100 == 0:
                 logger.info(
                     f"Joint training epoch {epoch}: outcome model loss func = {outcome_loss}, sum = {torch.sum(outcome_loss)}"
