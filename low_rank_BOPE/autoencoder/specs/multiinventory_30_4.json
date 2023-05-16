@@ -1,0 +1,40 @@
+{
+    "problem_name": "multiinventory_30_4",
+    "num_sobol_designs": 64,
+    "num_bo_iters": 1,
+    "bo_batch_size": 16, 
+    "num_pref_iters": 16,
+    "every_n_comps": 2,
+    "num_stages": 10, 
+    "reps": 20,
+    "strategies": {
+        "joint-autoencoder-eubo-2-500-500": {
+            "util_model_name": "joint_autoencoder",
+            "util_model_kwargs": {
+                "autoencoder_latent_dims": 2,
+                "num_unlabeled_outcomes": 0,
+                "autoencoder_num_joint_train_epochs": 500,
+                "autoencoder_num_joint_pretrain_epochs": 0,
+                "autoencoder_num_individual_pretrain_epochs": 500
+            },
+            "pe_gen_strategy": "eubo",
+            "bo_gen_kwargs": {
+                "retrain_util_model": false
+            }
+        },
+        "autoencoder-eubo-2-500-500": {
+            "util_model_name": "autoencoder",
+            "util_model_kwargs": {
+                "autoencoder_latent_dims": 2,
+                "num_unlabeled_outcomes": 0,
+                "autoencoder_num_joint_train_epochs": 500,
+                "autoencoder_num_joint_pretrain_epochs": 0,
+                "autoencoder_num_individual_pretrain_epochs": 500
+            },
+            "pe_gen_strategy": "eubo",
+            "bo_gen_kwargs": {
+                "retrain_util_model": false
+            }
+        }
+    }
+}

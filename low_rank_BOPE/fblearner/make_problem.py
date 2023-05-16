@@ -98,6 +98,30 @@ def make_problem_and_util_func(
         problem = MultipleInventories(problem_list)
         util_func = MultipleInventoriesUtil(50, util_func_list)
     
+    elif problem_name == "multiinventory_30_4": 
+        problem_list = []
+        util_func_list = []
+        for k, setup in options.items():
+            problem_list.append(
+                Inventory(
+                    duration = 30, 
+                    init_inventory = setup["init_inventory"],
+                    x_baseline = setup["x_baseline"],
+                    x_scaling = setup["x_scaling"],
+                    params = setup["simulation_params"]
+                )
+            )
+            util_func_list.append(
+                InventoryUtil(
+                    stockout_penalty_per_unit=setup["stockout_penalty_per_unit"],
+                    holding_cost_per_unit=setup["holding_cost_per_unit"],
+                    order_cost_one_time=setup["order_cost_one_time"],
+                    order_cost_per_unit=setup["order_cost_per_unit"],
+                )
+            )
+        problem = MultipleInventories(problem_list)
+        util_func = MultipleInventoriesUtil(30, util_func_list)
+    
     elif problem_name.startswith("PTS"):
 
         script_dir = os.path.dirname(os.path.abspath(__file__)) # TODO: test this
