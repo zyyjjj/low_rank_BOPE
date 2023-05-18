@@ -86,6 +86,26 @@ def gen_eubo_candidates(
     autoencoder: Optional[Autoencoder] = None,
     use_modified_fixedsinglesamplemodel: bool = False,
 ) -> Union[Tensor, Tensor, Tensor]:
+    r"""
+    Generate candidate outcomes to compare using the EUBO acquisition function.
+    Args:
+        pref_model: The preference model.
+        outcome_model: The outcome model.
+        bounds: The bounds of the design space.
+        outcome_dim: The dimension of the outcome space.
+        autoencoder: The autoencoder for decoding the outcome model outputs, if
+            the outcome model is fit on dim-reduced space.
+        use_modified_fixedsinglesamplemodel: Whether to use the modified
+            FixedSingleSampleModel. This must be True for the pca method, since
+            the dim reduction is implemented through an outcome transform. This 
+            does not have to be True for autoencoder methods, since the outcome
+            model is fitted on the latent outcome representations explicitly.
+    Returns:
+        cand_X: The candidate design points.
+        cand_Y: The outcome values associated with cand_X.
+        acqf_val: The acquisition function value at the candidate design points.
+    """
+
     if not use_modified_fixedsinglesamplemodel:
         one_sample_outcome_model = FixedSingleSampleModel(model=outcome_model)
     else:
@@ -115,6 +135,19 @@ def gen_random_f_candidates(
     outcome_model: GPyTorchModel, bounds: Tensor,
     autoencoder: Optional[Autoencoder] = None,
 ) -> Tuple[Tensor, Tensor]:
+    r"""
+    Generate candidate outcomes to compare using Random-f strategy, i.e., take
+    samples from the outcome model posterior.
+    Args:
+        outcome_model: The outcome model.
+        bounds: The bounds of the design space.
+        autoencoder: The autoencoder for decoding the outcome model outputs, if
+            the outcome model is fit on dim-reduced space.
+    Returns:
+        cand_X: The candidate design points.
+        cand_Y: The outcome values associated with cand_X.
+    """
+
     cand_X = (
         draw_sobol_samples(
             bounds=bounds,
@@ -134,6 +167,16 @@ def gen_random_f_candidates(
 def get_candidate_maximize_util(
     pref_model: PairwiseGP, outcome_model: GPyTorchModel, bounds: Tensor
 ) -> Tensor:
+    r"""
+    Generate candidate designs that maximize the utility model posterior mean.
+    Args:
+        pref_model: The preference model.
+        outcome_model: The outcome model.
+        bounds: The bounds of the design space.
+    Returns:
+        candidates: The candidate design points.
+    """
+
     sampler = SobolQMCNormalSampler(OUTCOME_MC_SAMPLES) 
     # use the same number of samples as in RetrainingBopeExperiment
     pref_obj = LearnedObjective(
@@ -165,6 +208,21 @@ def get_and_fit_outcome_model(
     util_model_name: str, # not the best name but lets keep it for now
     **kwargs,
 ) -> SingleTaskGP:
+    r"""
+    Instantiate and fit an outcome model under the specified **kwargs.
+    Args:
+        train_X: The training design points.
+        train_Y: The training outcome values.
+        util_model_name: The name of the utility model to use.
+            if "autoencoder" or "joint_autoencoder": train the outcome model 
+                under a fixed autoencoder's latent space
+            if "pca": train the outcome model on the PCA subspace learned on
+                train_Y
+            otherwise: fit a standard, non-dim-reduced outcome model
+    Returns:
+        outcome_model: The fitted outcome model.
+    """
+
     util_model_kwargs = kwargs.get("util_model_kwargs", {})
     logger.debug(f"Running get_and_fit_outcome_model, util_model_kwargs: {util_model_kwargs}")
 
@@ -207,6 +265,29 @@ def get_and_fit_util_model(
     train_Y: Optional[Tensor] = None,
     **kwargs,
 ) -> PairwiseGP:
+    r"""
+    Instantiate and fit a utility model under the specified **kwargs.
+    Args:
+        train_pref_outcomes: `n2 x outcome_dim` tensor of outcomes used for 
+            preference exploration only; a combination of initial experimental
+            outcomes and hypothetical outcomes generated in PE
+        train_comps: `n2/2 x 2` tensor of pairwise comparisons of 
+            outcomes in train_pref_outcomes
+        util_model_name: The name of the utility model to use.
+            if "autoencoder": train the utility model and autoencoder jointly
+                (through specifying 'fix_vae=False`)
+            if "joint_autoencoder": train the utility model under a fixed 
+                autoencoder (through specifying 'fix_vae=True`)
+            if "pca": train the utility model the PCA subspace learned on
+                train_Y as the input space
+            otherwise: fit a standard, non-dim-reduced utility model
+        outcome_model: an outcome model
+        bounds: The bounds of the design space.
+        train_Y: The observed experimental outcomes.
+    Returns:
+        util_model: The fitted utility model.
+    """
+    
     util_model_kwargs = kwargs.get("util_model_kwargs", {})
     logger.debug(f"Running get_and_fit_util_model, util_model_kwargs: {util_model_kwargs}")
 
@@ -229,6 +310,7 @@ def get_and_fit_util_model(
             num_unlabeled_outcomes=util_model_kwargs.get("num_unlabeled_outcomes", 0),
             outcome_model=outcome_model,
             bounds=bounds,
+            fix_vae=False
         )
     elif util_model_name == "joint_autoencoder":
         util_model, _ = get_fitted_autoencoded_util_model(
@@ -276,6 +358,21 @@ def gen_pe_candidates(
     outcome_dim: int,
     autoencoder: Optional[Autoencoder] = None,
 ) -> Tuple[Tensor, Tensor]:
+    r"""
+    Generate candidates for the preference exploration stage.
+    Args:
+        util_model_name: The name of the utility model to use.
+        pe_gen_strategy: Strategy, one of "eubo" and "random-f".
+        pref_model: The preference model.
+        outcome_model: The outcome model.
+        bounds: The bounds of the design space.
+        outcome_dim: The dimension of the outcome space.
+        autoencoder: The autoencoder.
+    Returns:
+        cand_X: The generated candidate designs.
+        cand_Y: The outcomes associated with the candidate designs.
+    """
+
     # EUBO-zeta:
     if pe_gen_strategy == "eubo":
         cand_X, cand_Y, _ = gen_eubo_candidates(
@@ -308,6 +405,36 @@ def run_single_pe_stage(
     util_func: torch.nn.Module,
     autoencoder: Optional[Autoencoder] = None,
 ) -> Union[List, Tensor, Tensor, PairwiseGP, LearnedObjective, Any]:
+    r"""
+    Run one stage of preference exploration.
+    Args:
+        train_Y: `n1 x outcome_dim` tensor of observed experimental outcomes
+        train_pref_outcomes: `n2 x outcome_dim` tensor of outcomes used for 
+            preference exploration only; a combination of initial experimental
+            outcomes and hypothetical outcomes generated in PE
+        train_comps: `n2/2 x 2` tensor of pairwise comparisons of 
+            outcomes in train_pref_outcomes
+        outcome_model: The outcome model.
+        pe_config_info: The config info for the preference exploration stage, 
+            which determines the specifics of utility model training.
+        num_pref_iters: The number of comparisons to make.
+        every_n_comps: The frequency with which to compute the true utility of
+            the candidate design that maximizes the current posterior mean utility.
+        problem: The true outcome funcion.
+        util_func: The true utility function.
+        autoencoder: The autoencoder.
+    Returns:
+        max_val_list: The list of maximum utility values identified throughout
+            the PE stage. Length should be `num_pref_iters // every_n_comps`.
+        train_pref_outcomes: `(n2+2*num_pref_iters) x outcome_dim` of accumulated
+            outcomes used for preference exploration
+        train_comps: `(n2//2 + num_pref_iters) x 2` tensor of accumulated pairwise comparisons
+        util_model: updated utility model
+        pref_obj: optimization objective object based on updated utility model
+        autoencoder: autoencoder at the end of the PE stage; may be updated if
+            the autoencoder is jointly trained with the utility model
+    """
+    
     max_val_list = []
     for i in range(num_pref_iters):  # number of batch iterations
         # fit pref model
@@ -388,9 +515,36 @@ def run_single_bo_stage(
     bo_batch_size: int,
     problem: MultiObjectiveTestProblem,
     util_func: torch.nn.Module,
-    util_list: List[List[str]],
+    util_list: List[List[float]],
     autoencoder: Optional[Autoencoder] = None,
 ) -> Union[List, Tensor, Tensor, GPyTorchModel, Any]:
+    r"""
+    Run one stage of experimentation on candidates from Bayesian optimization.
+    Args:
+        train_X: `n1 x d` tensor of training data
+        train_outcomes: `n1 x outcome_dim` tensor of outcomes
+        train_comps: `n2/2 x 2` tensor of pairwise comparisons of outcomes in train_pref_outcomes
+        train_pref_outcomes: `n2 x outcome_dim` tensor of outcomes
+        outcome_model: outcome model
+        pref_obj: optimization objective object based on utility model
+        pe_config_info: dictionary of PE config info
+        num_bo_iters: number of BO iterations
+        bo_batch_size: number of candidates to evaluate at each BO iteration
+        problem: The true outcome funcion.
+        util_func: The true utility function.
+        util_list: A nested list of utility values for the candidates evaluted 
+            so far; each sublist corresponds to candidates evaluated in one stage,
+            either the initial experimentation stage or a subsequent BO stage.
+        autoencoder: autoencoder at the end of the BO stage (doesn't change)
+    Returns:
+        util_list: updated list storing the utility values of candidate designs
+            evaluated so far
+        train_X: `(n1+num_bo_iters*q) x d` tensor of accumulated evaluated designs
+        train_outcomes: `(n1+num_bo_iters*q) x outcome_dim` tensor of accumulated
+            experimental outcomes
+        outcome_model: updated outcome model on expanded data
+        autoencoder: autoencoder
+    """
     
     bo_gen_kwargs = pe_config_info.get("bo_gen_kwargs", {})
 

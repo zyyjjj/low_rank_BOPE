@@ -48,6 +48,13 @@ logger = logging.getLogger("botorch")
 # Autoencoder model class
 
 class Autoencoder(nn.Module):
+    r"""
+    Class for an autoencoder model.
+    An autoencoder consists of an encoder that maps from high-dimensional 
+    `output_dims` to low-dimensional `latent_dims`, and a decoder that 
+    maps from `latent_dims` to `output_dims`.
+    """
+    
     def __init__(self, latent_dims, output_dims, **tkwargs):
         super(Autoencoder, self).__init__()
         self.latent_dims = latent_dims
@@ -84,7 +91,14 @@ def get_autoencoder(
     latent_dims: int,
     pre_train_epoch: int,
 ) -> Autoencoder:
-    """Instantiate an autoencoder."""
+    r"""
+    Instantiate an autoencoder.
+    Args:
+        train_Y: `num_samples x output_dims`-dim tensor of outcomes.
+        latent_dims: The dimension of the latent space.
+        pre_train_epoch: The number of epochs to pre-train the autoencoder.
+    """
+
     output_dims = train_Y.shape[-1]
     tkwargs = {"dtype": train_Y.dtype, "device": train_Y.device}
     autoencoder = Autoencoder(latent_dims, output_dims, **tkwargs)
@@ -96,7 +110,12 @@ def get_autoencoder(
 def train_autoencoder(
     autoencoder: Autoencoder, train_outcomes: Tensor, epochs=200
 ) -> Autoencoder:
-    """One can pre-train an AE with outcome data (via minimize L2 loss)."""
+    r"""
+    Train an AE individually with supplied outcome data (minimize L2 loss).
+    Returns:
+        autoencoder: The trained autoencoder.
+    """
+
     opt = torch.optim.Adam(autoencoder.parameters())
     for epoch in range(epochs):
         opt.zero_grad()
@@ -118,6 +137,17 @@ def initialize_outcome_model(
     train_Y: Tensor,
     latent_dims: int
 ) -> Tuple[SingleTaskGP, Likelihood]:
+    r"""
+    Initialize a GP model for the outcome model.
+    Args:
+        train_X: `num_samples x input_dims`-dim tensor of inputs.
+        train_Y: `num_samples x output_dims`-dim tensor of outcomes.
+        latent_dims: The dimension of the latent space.
+    Returns:
+        outcome_model: The initialized outcome model.
+        mll: The marginal log likelihood of the outcome model.
+    """
+    
     outcome_model = SingleTaskGP(
         train_X=train_X,
         train_Y=train_Y,
@@ -133,6 +163,17 @@ def get_fitted_pca_outcome_model(
     pca_var_threshold: float,
     standardize: bool = False,
 ) -> SingleTaskGP:
+    r"""
+    Get a fitted outcome model with targets being PCA-transformed outcomes.
+    Args:
+        train_X: `num_samples x input_dims`-dim tensor of inputs.
+        train_Y: `num_samples x output_dims`-dim tensor of outcomes.
+        pca_var_threshold: The proportion of variance to retain in the PCA projection.
+        standardize: If True, standardize the outcomes before fitting the GP.
+    Returns:
+        outcome_model: The fitted outcome model.
+    """
+
     projection = fit_pca(
         train_Y = train_Y,
         var_threshold = pca_var_threshold,
@@ -158,7 +199,15 @@ def get_fitted_pca_outcome_model(
 
 
 def get_fitted_standard_outcome_model(train_X: Tensor, train_Y: Tensor) -> SingleTaskGP:
-    """Fit a single-task outcome model."""
+    r"""
+    Fit a single-task outcome model with no dimensionality reduction on outcomes.
+    Args:
+        train_X: `num_samples x input_dims`-dim tensor of inputs.
+        train_Y: `num_samples x output_dims`-dim tensor of outcomes.
+    Returns:
+        outcome_model: The fitted outcome model.
+    """
+
     outcome_dim = train_Y.shape[-1]
     outcome_model = SingleTaskGP(
         train_X=train_X,
@@ -276,6 +325,15 @@ class HighDimPairwiseGP(PairwiseGP):
 def initialize_util_model(
     outcomes: Tensor, comps: Tensor, latent_dims: int
 ) -> Tuple[HighDimPairwiseGP, PairwiseLaplaceMarginalLogLikelihood]:
+    r"""
+    Initialize a utility model for high-dim outcomes.
+    Args:
+        outcomes: `num_datapoints x output_dims`-dim tensor of outcomes.
+        comps: `num_datapoints//2 x 2`-dim tensor of comparisons.
+    Returns:
+        util_model: The initialized utility model.
+    """
+
     util_model = HighDimPairwiseGP(
         datapoints=outcomes,
         comparisons=comps,
@@ -302,10 +360,26 @@ def get_fitted_autoencoded_util_model(
 ) -> Tuple[HighDimPairwiseGP, Autoencoder]:
     r"""Fit utility model with auto-encoder
     Args:
-        train_pref_outcomes: `num_samples x outcome_dim` tensor of outcomes
-        train_comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
-        outcome_model: if not None, we will sample 100 fakes outcomes from it for
-            training auto-encoder otherwiese, we use train_Y (labeled preference training data)
+        train_Y: `n1 x outcome_dim` tensor of observed experimental outcomes
+        train_pref_outcomes: `n2 x outcome_dim` tensor of outcomes used for 
+            preference exploration only; a combination of initial experimental
+            outcomes and hypothetical outcomes generated in PE
+        train_comps: `n2/2 x 2` tensor of pairwise comparisons of 
+            outcomes in train_pref_outcomes
+        latent_dims: latent dimension of autoencoder
+        num_joint_train_epochs: number of epochs to jointly train the models
+        num_autoencoder_pretrain_epochs: number of epochs to pre-train the autoencoder
+        num_unlabeled_outcomes: number of unlabeled outcomes to be sampled from
+            the outcome model for training auto-encoder
+        outcome_model: if not None, we will sample 100 fake outcomes from it for
+            training auto-encoder otherwiese, we use train_Y (labeled preference training data) # TODO: come back to this
+        bounds: bounds of the input space # TODO: double check
+        autoencoder: if not None, start training from this supplied autoencoder
+        fix_vae: if True, we fix the auto-encoder and only train the utility model;
+            if False (default), jointly train the autoencoder and utility model
+    Returns:
+        util_model: the fitted utility model
+        autoencoder: the fitted autoencoder
     """
 
     if (
@@ -373,13 +447,23 @@ def get_fitted_pca_util_model(
     bounds: Optional[Tensor] = None,
     standardize: bool = False,
 ) -> PairwiseGP:
-    r"""Fit utility model based on given data and model_kwargs
+    r"""Fit utility model with inputs transformed by PCA.
     Args:
-        train_Y: `num_samples x outcome_dim` tensor of outcomes
-        train_comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
-        model_kwargs: input transform and covar_module
+        train_Y: `n1 x outcome_dim` tensor of observed experimental outcomes
+        train_pref_outcomes: `n2 x outcome_dim` tensor of outcomes used for 
+            preference exploration only; a combination of initial experimental
+            outcomes and hypothetical outcomes generated in PE
+        train_comps: `n2/2 x 2` tensor of pairwise comparisons of 
+            outcomes in train_pref_outcomes
+        pca_var_threshold: threshold of variance explained by PCA
+        num_unlabeled_outcomes: number of unlabeled outcomes to be sampled from
+            the outcome model for fitting PCA
         outcome_model: if not None, we will sample 100 fakes outcomes from it for PCA fitting
             otherwise, we use train_Y (labeled preference training data) to fit PCA
+        bounds: bounds of the input space # TODO: double check
+        standardize: if True, standardize the data before fitting PCA
+    Returns:
+        util_model: fitted utility model
     """
 
     if (
@@ -431,7 +515,10 @@ def get_fitted_standard_util_model(
     Args:
         train_pref_outcomes: `num_samples x outcome_dim` tensor of outcomes
         train_comps: `num_samples/2 x 2` tensor of pairwise comparisons of Y data
+    Returns:
+        util_model: fitted utility model
     """
+
     util_model = PairwiseGP(
         datapoints=train_pref_outcomes,
         comparisons=train_comps,
@@ -456,7 +543,24 @@ def jointly_opt_ae_util_model(
     train_comps: Tensor,
     num_epochs: int,
 ) -> Tuple[HighDimPairwiseGP, Autoencoder]:
-    """Jointly optimize util model and fine-tune AE"""
+    r"""
+    Jointly optimize util model and fine-tune AE.
+    Args:
+        util_model: utility model
+        mll_util: marginal log likelihood of utility model
+        autoencoder: autoencoder
+        train_Y: `n1 x outcome_dim` tensor of observed experimental outcomes
+        train_pref_outcomes: `n2 x outcome_dim` tensor of outcomes used for
+            preference exploration only; a combination of initial experimental
+            outcomes and hypothetical outcomes generated in PE
+        train_comps: `n2/2 x 2` tensor of pairwise comparisons of
+            outcomes in train_pref_outcomes
+        num_epochs: number of epochs to train
+    Returns:
+        util_model: utility model jointly fitted with autoencoder
+        autoencoder: autoencoder jointly fitted with utility model
+    """
+
     autoencoder.train()
     util_model.train()
 
@@ -515,6 +619,30 @@ def jointly_optimize_models(
     train_outcome_model: bool = True,
     train_util_model: bool = True
 ):
+    r"""
+    Jointly optimize a subset of (autoencoder, outcome model, utility model).
+    Args:
+        autoencoder: autoencoder
+        train_Y: `n1 x outcome_dim` tensor of observed experimental outcomes
+        num_epochs: number of epochs to train
+        train_X: `n1 x dim` tensor of observed experimental inputs
+        train_pref_outcomes: `n2 x outcome_dim` tensor of outcomes used for
+            preference exploration only; a combination of initial experimental
+            outcomes and hypothetical outcomes generated in PE
+        train_comps: `n2/2 x 2` tensor of pairwise comparisons of
+            outcomes in train_pref_outcomes
+        outcome_model: outcome model
+        mll_outcome: marginal log likelihood of outcome model
+        util_model: utility model
+        mll_util: marginal log likelihood of utility model
+        train_ae: whether to train the autoencoder
+        train_outcome_model: whether to train the outcome model
+        train_util_model: whether to train the utility model
+    Returns:
+        autoencoder: fitted autoencoder if train_ae else None
+        outcome_model: fitted outcome model if train_outcome_model else None
+        util_model: fitted utility model if train_util_model else None
+    """
     
     optimizer_params = []
 
@@ -616,6 +744,16 @@ def jointly_optimize_models(
 def _get_unlabeled_outcomes(
     outcome_model: GPyTorchModel, bounds: Tensor, nsample: int
 ) -> Tensor:
+    r"""
+    Take samples from the posterior of an outcome model.
+    Args:
+        outcome_model: outcome model
+        bounds: `2 x d` tensor of lower and upper bounds for each column of X
+        nsample: number of samples to take
+    Returns:
+        `nsample x outcome_dim` tensor of outcomes
+    """
+
     # let's add fake data
     X = (
         draw_sobol_samples(
