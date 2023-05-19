@@ -208,7 +208,7 @@ PROBLEM_SETUPS = {
         "alpha": 0.5,
         "noise_std": 0.01,
         "util_type": "piecewiselinear",
-        "PC_lengthscales": [0,1, 0.1, 0.1],
+        "PC_lengthscales": [0.1, 0.1, 0.1],
         "problem_seed": 1234
     },
     "PTS=6_input=3_outcome=45_latent=3_alpha=1.0_pwlinear": {
@@ -220,7 +220,7 @@ PROBLEM_SETUPS = {
         "noise_std": 0.01,
         "util_type": "piecewiselinear",
         "util_coeff_multiplier": 5.0,
-        "PC_lengthscales": [0,1, 0.1, 0.1],
+        "PC_lengthscales": [0.1, 0.1, 0.1],
         "problem_seed": 1234
     }
 }
