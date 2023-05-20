@@ -56,6 +56,7 @@ class RetrainingBopeExperiment:
 
     attr_list = {
         "pca_var_threshold": 0.95,
+        "num_PCs": None, # if num_PCs is specified, ignore pca_var_threshold
         "initial_experimentation_batch": 16,
         "n_check_post_mean": 20,
         "every_n_comps": 3,
@@ -245,6 +246,7 @@ class RetrainingBopeExperiment:
             projection = fit_pca(
                 Y_selected,
                 var_threshold=self.pca_var_threshold, 
+                num_PCs=self.num_PCs,
                 weights=None,
                 standardize=self.standardize
             ) 
@@ -267,6 +269,7 @@ class RetrainingBopeExperiment:
             projection = fit_pca(
                 train_Y, 
                 var_threshold=self.pca_var_threshold,
+                num_PCs=self.num_PCs,
                 weights=weights,
                 standardize=self.standardize
             ) 
@@ -293,6 +296,7 @@ class RetrainingBopeExperiment:
             projection = fit_pca(
                 train_Y, 
                 var_threshold=self.pca_var_threshold, 
+                num_PCs=self.num_PCs,
                 weights=weights,
                 standardize=self.standardize
             ) 

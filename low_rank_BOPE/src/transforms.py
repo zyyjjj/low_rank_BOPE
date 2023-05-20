@@ -706,6 +706,7 @@ def compute_weights(
 def fit_pca(
     train_Y: Tensor, 
     var_threshold: float=0.9, 
+    num_PCs: Optional[int]=None,
     weights: Optional[Tensor] = None,
     standardize: Optional[bool] = True
 ):
@@ -715,13 +716,13 @@ def fit_pca(
     Args:
         train_Y: `num_samples x outcome_dim` tensor of data
         var_threshold: threshold of variance explained
+        num_PCs: the number of principal components to keep;
+            default None; if specified, will override var_threshold
         weights: `num_samples x 1` tensor of weights to add on each data point
         standardize: whether to standardize train_Y before computing PCA
     Returns:
         pca_axes: `latent_dim x outcome_dim` tensor where each row is a pca axis
     """
-
-    # TODO: maybe add optional arg num_axes
 
     if weights is not None:
         # weighted pca
@@ -748,10 +749,14 @@ def fit_pca(
     S_squared = torch.square(S)
     explained_variance = S_squared / S_squared.sum()
 
-    exceed_thres = (
-        np.cumsum(explained_variance.detach().numpy()) > var_threshold
-    )
-    num_axes = len(exceed_thres) - sum(exceed_thres) + 1
+    if num_PCs is not None:
+        # override var_threshold
+        num_axes = num_PCs
+    else:
+        exceed_thres = (
+            np.cumsum(explained_variance.detach().numpy()) > var_threshold
+        )
+        num_axes = len(exceed_thres) - sum(exceed_thres) + 1
 
     pca_axes = torch.transpose(V[:, : num_axes], -2, -1).to(torch.double)
 
