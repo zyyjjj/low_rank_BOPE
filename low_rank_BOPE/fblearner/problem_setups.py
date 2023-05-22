@@ -126,7 +126,7 @@ PROBLEM_SETUPS = {
             }
         },
     },
-    "multiinventory_50_4": {
+    "multiinventory_30_4": {
         "product_0": {
             "init_inventory": 50,
             "x_baseline": 50,
@@ -192,6 +192,44 @@ PROBLEM_SETUPS = {
             "simulation_params": {
                 'demand_mean' : 3, 
                 'demand_std' : 1,
+                'lead_time' : 10, # tau in the slides
+                'stockout_penalty' : 0.1, # doesn't matter for us
+                'holding_cost' : 0.01, # doesn't matter for us
+                'K' : 1, # doesn't matter for us 
+                'c' : 0.1 # doesn't matter for us
+            }
+        },
+    },
+    "multiinventory_50_2": {
+        "product_0": {
+            "init_inventory": 50,
+            "x_baseline": 50,
+            "x_scaling": 50,
+            "stockout_penalty_per_unit": 0.1,
+            "holding_cost_per_unit": 0.1,
+            "order_cost_one_time": 0.0,
+            "order_cost_per_unit": 0.1,
+            "simulation_params": {
+                'demand_mean' : 5, 
+                'demand_std' : 2,
+                'lead_time' : 10, # tau in the slides
+                'stockout_penalty' : 0.1, # doesn't matter for us
+                'holding_cost' : 0.01, # doesn't matter for us
+                'K' : 1, # doesn't matter for us 
+                'c' : 0.1 # doesn't matter for us
+            }
+        },
+        "product_1": {
+            "init_inventory": 50,
+            "x_baseline": 50,
+            "x_scaling": 50,
+            "stockout_penalty_per_unit": 0.2,
+            "holding_cost_per_unit": 0.2,
+            "order_cost_one_time": 0.0,
+            "order_cost_per_unit": 0.2,
+            "simulation_params": {
+                'demand_mean' : 5, 
+                'demand_std' : 2,
                 'lead_time' : 10, # tau in the slides
                 'stockout_penalty' : 0.1, # doesn't matter for us
                 'holding_cost' : 0.01, # doesn't matter for us
@@ -314,6 +352,17 @@ EXPERIMENT_SETUPS = {
         "standardize": False
     },
     "multiinventory_30_4": {
+        "pe_strategies": ["EUBO-zeta"],
+        "every_n_comps": 2,
+        "n_check_post_mean": 8,
+        "initial_experimentation_batch": 64,
+        "pca_var_threshold": 0.9,
+        "n_BO_iters": 1,
+        "BO_batch_size": 16,
+        "n_meta_iters": 10,
+        "standardize": False
+    },
+    "multiinventory_50_2": {
         "pe_strategies": ["EUBO-zeta"],
         "every_n_comps": 2,
         "n_check_post_mean": 8,

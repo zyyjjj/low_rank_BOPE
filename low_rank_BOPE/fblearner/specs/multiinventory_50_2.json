@@ -1,0 +1,10 @@
+{
+    "problem_name": "multiinventory_50_2",
+    "baselines": [
+        "st",
+        "pca_rt",
+        "random_search"
+    ],
+    "trial_idx_start": 1,
+    "trial_idx_end": 50
+}
