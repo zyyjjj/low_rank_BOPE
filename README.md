@@ -8,4 +8,4 @@ To run the toy molecular screening campaign activate the molecule environment vi
 conda env create -f molecule.yml
 ```
 
-Rum the LSPE_Photoswitch.ipynb notebook witin the notebooks folder.
+Run the LSPE_Photoswitch.ipynb notebook within the notebooks folder.
