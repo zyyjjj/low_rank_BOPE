@@ -297,12 +297,12 @@ def generate_random_pref_data(
 
 
 def gen_exp_cand(
-    outcome_model: Model,
-    objective: MCAcquisitionObjective,
+    model: Model,
     problem: torch.nn.Module,
     q: int,
     acqf_name: str,
     seed: int,
+    objective: Optional[MCAcquisitionObjective] = None,
     X: Optional[Tensor] = None,
     sampler_num_outcome_samples: int = 128,
     num_restarts: int = 8,
@@ -314,6 +314,7 @@ def gen_exp_cand(
     Args:
         outcome_model: GP model mapping input to outcome
         objective: MC objective mapping outcome to utility
+            if the objective is not specified, `model` maps from input to utility 
         problem: a TestProblem
         q: number of candidates to generate
         acqf_name: name of acquisition function, one of {'qNEI', 'posterior_mean'}
@@ -329,7 +330,7 @@ def gen_exp_cand(
     if acqf_name == "qNEI":
         # generate experimental candidates with qNEI/qNEIUU
         acq_func = qNoisyExpectedImprovement(
-            model=outcome_model,
+            model=model,
             objective=objective,
             X_baseline=X,
             sampler=sampler,
@@ -339,7 +340,7 @@ def gen_exp_cand(
     elif acqf_name == "posterior_mean":
         # generate experimental candidates with maximum posterior mean
         acq_func = qSimpleRegret(
-            model=outcome_model,
+            model=model,
             sampler=sampler,
             objective=objective,
         )
@@ -350,7 +351,7 @@ def gen_exp_cand(
     candidates, acqf_val = optimize_acqf(
         acq_function=acq_func,
         q=q,
-        bounds=problem.bounds,
+        bounds=problem.bounds, # this is the input bounds
         num_restarts=num_restarts,
         raw_samples=raw_samples,
         options={"batch_limit": batch_limit, "seed": seed},
