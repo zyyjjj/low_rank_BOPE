@@ -265,9 +265,16 @@ PROBLEM_SETUPS = {
 
 # Configuration for BOPE experiment pipeline
 
+PE_STRATEGIES = {
+    "pca_rt": ["EUBO-zeta"], 
+    "st": ["EUBO-zeta"], 
+    "random_search": ["EUBO-zeta"], 
+    "pbo": ["TS"]
+}
+
 EXPERIMENT_SETUPS = {
     "vehiclesafety_5d3d_piecewiselinear_24": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 4,
         "initial_experimentation_batch": 32,
@@ -277,7 +284,7 @@ EXPERIMENT_SETUPS = {
         "n_meta_iters": 10,
     },
     "carcabdesign_7d9d_piecewiselinear_72": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 4,
         "initial_experimentation_batch": 32,
@@ -287,7 +294,7 @@ EXPERIMENT_SETUPS = {
         "n_meta_iters": 10,
     },
     "carcabdesign_7d9d_linear_72": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 4,
         "initial_experimentation_batch": 32,
@@ -297,7 +304,7 @@ EXPERIMENT_SETUPS = {
         "n_meta_iters": 10,
     },
     "8by8_rectangle_gradientAwareArea": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 4,
         "initial_experimentation_batch": 32,
@@ -308,7 +315,7 @@ EXPERIMENT_SETUPS = {
         "standardize": False,
     },
     "16by16_rectangle_gradientAwareArea": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 8,
         "initial_experimentation_batch": 64,
@@ -319,7 +326,7 @@ EXPERIMENT_SETUPS = {
         "standardize": False,
     },
     "robot_3_100_1": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 8,
         "initial_experimentation_batch": 64,
@@ -330,7 +337,7 @@ EXPERIMENT_SETUPS = {
         "standardize": False, 
     },
     "inventory_100": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 8,
         "initial_experimentation_batch": 64,
@@ -341,7 +348,7 @@ EXPERIMENT_SETUPS = {
         "standardize": False
     },
     "multiinventory_50_4": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 8,
         "initial_experimentation_batch": 64,
@@ -352,7 +359,7 @@ EXPERIMENT_SETUPS = {
         "standardize": False
     },
     "multiinventory_30_4": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 8,
         "initial_experimentation_batch": 64,
@@ -363,7 +370,7 @@ EXPERIMENT_SETUPS = {
         "standardize": False
     },
     "multiinventory_50_2": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 8,
         "initial_experimentation_batch": 64,
@@ -374,7 +381,7 @@ EXPERIMENT_SETUPS = {
         "standardize": False
     },
     "PTS=6_input=3_outcome=45_latent=3_alpha=0.5_pwlinear": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 4,
         "initial_experimentation_batch": 32,
@@ -384,7 +391,7 @@ EXPERIMENT_SETUPS = {
         "n_meta_iters": 10,
     },
     "PTS=6_input=3_outcome=45_latent=3_alpha=1.0_pwlinear": {
-        "pe_strategies": ["EUBO-zeta"],
+        "pe_strategies": PE_STRATEGIES,
         "every_n_comps": 2,
         "n_check_post_mean": 4,
         "initial_experimentation_batch": 32,
