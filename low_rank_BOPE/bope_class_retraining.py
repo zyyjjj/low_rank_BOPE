@@ -198,7 +198,7 @@ class RetrainingBopeExperiment:
             # put into pref_data_dict for different (method, pe_strategy) tuples
             for method in self.methods:
                 for pe_strategy in self.pe_strategies[method]:
-                    if pe_strategy == "TS": # TODO: is this the right way to distinguish things? 
+                    if method == "pbo": # pbo needs X
                         self.pref_data_dict[(method, pe_strategy)] = {
                             "X": self.initial_X,
                             "Y": self.initial_Y,
@@ -475,7 +475,6 @@ class RetrainingBopeExperiment:
 
         logger.info(f"    -- Fitting util model")
 
-        # train_X = self.BO_data_dict[(method, pe_strategy)]["X"] # TODO: should be pref_data_dict, not BO_data_dict
         train_X = self.pref_data_dict[(method, pe_strategy)].get("X", None)
         train_Y = self.pref_data_dict[(method, pe_strategy)]["Y"]
         train_comps = self.pref_data_dict[(method, pe_strategy)]["comps"]
@@ -504,7 +503,7 @@ class RetrainingBopeExperiment:
         logger.info(f"        -- Util model fitting time: {model_fitting_time:.2f} seconds")
 
         if save_model:
-            self.util_models_dict[(method, pe_strategy)] = util_model # TODO: will this increase memory consumption a lot?
+            self.util_models_dict[(method, pe_strategy)] = util_model
 
         if save_model_fit_time:
             self.time_consumption[(method, pe_strategy)]["util_model_fitting_time"].append(model_fitting_time)
@@ -604,7 +603,6 @@ class RetrainingBopeExperiment:
                     cand_X).rsample().squeeze(0).detach()
             
             elif method=="pbo" and pe_strategy=="TS":
-                # TODO: check correctness!!!
                 # use Thompson sampling to draw comparisons
                 if train_X is None:
                     raise RuntimeError("train_X in pref_data_dict must not be None for Thompson Sampling")
@@ -618,7 +616,7 @@ class RetrainingBopeExperiment:
                 cand_comps = torch.cat((comp1, comp2), dim=-1)
                 # reorder so that the larger-util one comes first
                 if train_util_vals[comp2] > train_util_vals[comp1]:
-                    cand_comps = cand_comps.flip(-1) # TODO: double check
+                    cand_comps = cand_comps.flip(-1) 
                 train_comps = torch.cat((train_comps, cand_comps))
                 self.pref_data_dict[(method, pe_strategy)]["comps"] = train_comps
                 return
@@ -819,10 +817,9 @@ class RetrainingBopeExperiment:
             gen_bo_cand_start_time = time.time()
 
             # find experimental candidate(s) that maximize the noisy EI acqf
-            # TODO: find a way to adapt this to PBO-TS
             if method == "pbo":
                 new_cand_X, acqf_val = gen_exp_cand(
-                    model=self.util_models_dict[(method, pe_strategy)], # TODO: is this right? 
+                    model=self.util_models_dict[(method, pe_strategy)], 
                     objective=None,
                     problem=self.problem,
                     q=self.BO_batch_size, 
@@ -937,7 +934,6 @@ class RetrainingBopeExperiment:
         """
 
         if method == "random_search":
-        # if method in ("random_search", "pbo"):
             return
 
         for pe_strategy in self.pe_strategies[method]:
