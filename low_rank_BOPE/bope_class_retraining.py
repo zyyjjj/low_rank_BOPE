@@ -551,7 +551,7 @@ class RetrainingBopeExperiment:
             
             gen_pe_cand_start_time = time.time()
 
-            if pe_strategy == "EUBO-zeta":
+            if pe_strategy == "EUBO-zeta" and method != "pbo":
                 with botorch.settings.debug(state=True):
                     # EUBO-zeta
                     one_sample_outcome_model = ModifiedFixedSingleSampleModel(
@@ -601,25 +601,43 @@ class RetrainingBopeExperiment:
                 ).squeeze(0).to(torch.double)
                 cand_Y = self.outcome_models_dict[(method, pe_strategy)].posterior(
                     cand_X).rsample().squeeze(0).detach()
-            
-            elif method=="pbo" and pe_strategy=="TS":
-                # use Thompson sampling to draw comparisons
+                
+            elif method=="pbo":
                 if train_X is None:
-                    raise RuntimeError("train_X in pref_data_dict must not be None for Thompson Sampling")
-                # get the sample with the largest posterior value
-                comp1 = util_model.posterior(train_X).sample().argmax(dim=-2)
-                # exclude the first sample, take the sample with the second largest posterior value
-                sample2 = util_model.posterior(train_X).sample()
-                sample2[:, comp1.squeeze(), :] = -float("Inf")
-                comp2 = sample2.argmax(dim=-2)
-                # Create candidate comparisons
-                cand_comps = torch.cat((comp1, comp2), dim=-1)
+                        raise RuntimeError("train_X in pref_data_dict must not be None for PBO")
+                if pe_strategy=="EUBO-zeta":
+                    all_pairs = torch.combinations(
+                        torch.tensor(range(train_X.shape[-2])), r=2).to(train_comps)
+                    acqf = AnalyticExpectedUtilityOfBestOption(
+                        pref_model=util_model,
+                        outcome_model=None
+                    ).to(torch.double) 
+                    cand_comps = None
+                    max_eubo_val = -np.inf
+                    for j in range(all_pairs.shape[-2]):
+                        X_pair = train_X[all_pairs[j, :]]
+                        eubo_val = acqf(X_pair).item()
+                        if eubo_val > max_eubo_val:
+                            max_eubo_val = eubo_val
+                            cand_comps = all_pairs[[j], :]
+                elif pe_strategy=="TS":
+                    # use Thompson sampling to draw comparisons
+                    # get the sample with the largest posterior value
+                    comp1 = util_model.posterior(train_X).sample().argmax(dim=-2)
+                    # exclude the first sample, take the sample with the second largest posterior value
+                    sample2 = util_model.posterior(train_X).sample()
+                    sample2[:, comp1.squeeze(), :] = -float("Inf")
+                    comp2 = sample2.argmax(dim=-2)
+                    # Create candidate comparisons
+                    cand_comps = torch.cat((comp1, comp2), dim=-1)
+
                 # reorder so that the larger-util one comes first
-                if train_util_vals[comp2] > train_util_vals[comp1]:
+                if train_util_vals[cand_comps[0][1]] > train_util_vals[cand_comps[0][0]]:
                     cand_comps = cand_comps.flip(-1) 
                 train_comps = torch.cat((train_comps, cand_comps))
                 self.pref_data_dict[(method, pe_strategy)]["comps"] = train_comps
                 return
+            
             else:
                 raise RuntimeError("Not supported: method={}, pe_strategy={}".format(method, pe_strategy))
         
@@ -939,7 +957,7 @@ class RetrainingBopeExperiment:
         for pe_strategy in self.pe_strategies[method]:
             self.compute_projections(method, pe_strategy)
             if method == "pbo":
-                return
+                continue
             else:
                 self.fit_outcome_model(method, pe_strategy)        
 

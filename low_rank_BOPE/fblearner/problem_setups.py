@@ -269,7 +269,7 @@ PE_STRATEGIES = {
     "pca_rt": ["EUBO-zeta"], 
     "st": ["EUBO-zeta"], 
     "random_search": ["EUBO-zeta"], 
-    "pbo": ["TS"]
+    "pbo": ["TS", "EUBO-zeta"]
 }
 
 EXPERIMENT_SETUPS = {
