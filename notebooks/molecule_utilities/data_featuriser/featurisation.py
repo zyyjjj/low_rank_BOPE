@@ -3,14 +3,8 @@
 import numpy as np
 from rdkit.Chem import MolFromSmiles, AllChem, Descriptors
 import pandas as pd
-from rxnfp.transformer_fingerprints import (
-    get_default_model_and_tokenizer,
-    RXNBERTFingerprintGenerator,
-)
-from drfp import DrfpEncoder
 from sklearn.feature_extraction.text import CountVectorizer
 import selfies as sf
-import graphein.molecule as gm
 from rdkit.Chem import rdMolDescriptors
 
 
@@ -28,36 +22,6 @@ def one_hot(df):
     """
     df_ohe = pd.get_dummies(df)
     return df_ohe.to_numpy(dtype=np.float64)
-
-
-def rxnfp(reaction_smiles):
-    """
-    https://rxn4chemistry.github.io/rxnfp/
-
-    Builds reaction representation as a continuous RXNFP fingerprints.
-    :param reaction_smiles: list of reaction smiles
-    :type reaction_smiles: list
-    :return: array of shape [len(reaction_smiles), 256] with rxnfp featurised reactions
-
-    """
-    rxn_model, tokenizer = get_default_model_and_tokenizer()
-    rxnfp_generator = RXNBERTFingerprintGenerator(rxn_model, tokenizer)
-    rxnfps = [rxnfp_generator.convert(smile) for smile in reaction_smiles]
-    return np.array(rxnfps, dtype=np.float64)
-
-
-def drfp(reaction_smiles, nBits=2048):
-    """
-    https://github.com/reymond-group/drfp
-
-    Builds reaction representation as a binary DRFP fingerprints.
-    :param reaction_smiles: list of reaction smiles
-    :type reaction_smiles: list
-    :return: array of shape [len(reaction_smiles), nBits] with drfp featurised reactions
-
-    """
-    fps = DrfpEncoder.encode(reaction_smiles, n_folded_length=nBits)
-    return np.asarray(fps, dtype=np.float64)
 
 
 # Molecules
