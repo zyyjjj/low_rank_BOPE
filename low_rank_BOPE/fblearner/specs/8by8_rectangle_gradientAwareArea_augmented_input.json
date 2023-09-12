@@ -3,6 +3,7 @@
     "baselines": [
         "st",
         "pca_rt",
+        "pbo",
         "random_search"
     ],
     "trial_idx_start": 1,
