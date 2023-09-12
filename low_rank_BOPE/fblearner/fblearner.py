@@ -31,6 +31,8 @@ List of problem names:
     "carcabdesign_7d9d_linear_72",
     "8by8_rectangle_gradientAwareArea",
     "16by16_rectangle_gradientAwareArea",
+    "8by8_rectangle_gradientAwareArea_augmented_input",
+    "16by16_rectangle_gradientAwareArea_augmented_input",
     "robot_3_100_1",
     "robot_3_500_5",
     "inventory_100",
