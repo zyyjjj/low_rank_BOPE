@@ -22,6 +22,14 @@ PROBLEM_SETUPS = {
     "16by16_rectangle_gradientAwareArea": {
         "penalty_param": 0.5
     },
+    "8by8_rectangle_gradientAwareArea_augmented_input": {
+        "input_dim": 10,
+        "penalty_param": 0.5
+    },
+    "16by16_rectangle_gradientAwareArea_augmented_input": {
+        "input_dim": 10,
+        "penalty_param": 0.5
+    },
     "robot_3_100_1": {
         "y_drift_penalty": 0.1,
         "y_var_penalty": 0.1,

@@ -41,6 +41,20 @@ def make_problem_and_util_func(
             image_shape=(16,16)
         )
     
+    elif problem_name == "8by8_rectangle_gradientAwareArea_augmented_input":
+        problem = Image(input_dim=options.get('input_dim', 10), num_pixels=8)
+        util_func = GradientAwareAreaUtil(
+            penalty_param=options.get('penalty_param', 0.5), 
+            image_shape=(8,8)
+        )
+    
+    elif problem_name == "16by16_rectangle_gradientAwareArea_augmented_input":
+        problem = Image(input_dim=options.get('input_dim', 10), num_pixels=16)
+        util_func = GradientAwareAreaUtil(
+            penalty_param=options.get('penalty_param', 0.5),
+            image_shape=(16,16)
+        )
+    
     elif problem_name.startswith("robot"):
         # "robot_3_100_1", or "robot_3_500_5",
 
