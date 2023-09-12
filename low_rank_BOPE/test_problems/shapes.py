@@ -11,10 +11,12 @@ class Image(SyntheticTestFunction):
     r"""
     Class for generating rectangle images
     """
-    dim = 4
-    _bounds = torch.tensor([[0., 1.], [0., 1.], [0., 1.], [0.,1.]])
+    # dim = 4
+    # _bounds = torch.tensor([[0., 1.], [0., 1.], [0., 1.], [0.,1.]])
 
-    def __init__(self, num_pixels: int = 16):
+    def __init__(self, input_dim: int = 4, num_pixels: int = 16):
+        self.dim = input_dim
+        self._bounds = torch.tensor([[0., 1.]] * input_dim)
         super().__init__()
         self.num_pixels = num_pixels
         self.pixel_size = 1 / self.num_pixels
@@ -42,7 +44,7 @@ class Image(SyntheticTestFunction):
 
         for sample_idx in range(X.shape[-2]):
 
-            row_start, col_start, row_end, col_end = pixel_idcs[sample_idx].numpy().astype(int)
+            row_start, col_start, row_end, col_end = pixel_idcs[sample_idx, :4].numpy().astype(int)
 
             # swap if needed
             if row_start > row_end:

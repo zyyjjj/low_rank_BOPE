@@ -53,7 +53,7 @@ def generate_random_inputs(problem: torch.nn.Module, n: int) -> Tensor:
 
 
 def gen_comps(
-    util_vals: Tensor, comp_noise_type: str = None, comp_noise: float = None
+    util_vals: Tensor, comp_noise_type: str = "constant", comp_noise: float = 0.1
 ) -> Tensor:
     r"""Create pairwise comparisons.
     Args:
@@ -579,7 +579,7 @@ def inject_comp_error(comp, util_diff, comp_noise_type, comp_noise):
             comp[to_flip, 0],
         )
     else:
-        assert util_diff > 0
+        assert util_diff >= 0
         # flip a single pair
         if to_flip:
             flipped_comp[[0, 1]] = flipped_comp[[1, 0]]

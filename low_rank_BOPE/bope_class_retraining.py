@@ -77,6 +77,7 @@ class RetrainingBopeExperiment:
         "wpca_options": {"k": 10, "num_points_to_discard": 2},
         "compute_true_opt": False,
         "save_results": True,
+        "comp_noise": 0.0
     }
 
     def __init__(
@@ -193,7 +194,7 @@ class RetrainingBopeExperiment:
 
         if compute_util:
             util_vals = self.util_func(self.initial_Y).detach()
-            comps = gen_comps(util_vals)
+            comps = gen_comps(util_vals, comp_noise=self.comp_noise)
 
             # put into pref_data_dict for different (method, pe_strategy) tuples
             for method in self.methods:
@@ -613,13 +614,17 @@ class RetrainingBopeExperiment:
                         outcome_model=None
                     ).to(torch.double) 
                     cand_comps = None
-                    max_eubo_val = -np.inf
-                    for j in range(all_pairs.shape[-2]):
-                        X_pair = train_X[all_pairs[j, :]]
-                        eubo_val = acqf(X_pair).item()
-                        if eubo_val > max_eubo_val:
-                            max_eubo_val = eubo_val
-                            cand_comps = all_pairs[[j], :]
+                    # max_eubo_val = -np.inf
+                    # for j in range(all_pairs.shape[-2]):
+                    #     X_pair = train_X[all_pairs[j, :]]
+                    #     eubo_val = acqf(X_pair).item()
+                    #     if eubo_val > max_eubo_val:
+                    #         max_eubo_val = eubo_val
+                    #         cand_comps = all_pairs[[j], :]
+                    eubo_vals = acqf(train_X[all_pairs]) # num_pairs x 2 x input_dim
+                    max_eubo_idx = torch.argmax(eubo_vals).item()
+                    cand_comps = all_pairs[[max_eubo_idx], :]
+                    
                 elif pe_strategy=="TS":
                     # use Thompson sampling to draw comparisons
                     # get the sample with the largest posterior value
